@@ -1,0 +1,252 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <title>WRM Helical Model - with Day Counter</title>
+    <style>
+        body { margin: 0; overflow: hidden; background-color: #000; color: #fff; font-family: 'Times New Roman', serif; }
+        #simCanvas { 
+            display: block; 
+            background-image: url('backscreen.png'); 
+            background-size: cover; 
+            background-position: center; 
+        }
+        /* 操作パネル */
+        #controls { 
+            position: absolute; top: 20px; left: 20px; 
+            background: rgba(20, 20, 25, 0.85); backdrop-filter: blur(10px);
+            border-radius: 12px; border: 1px solid rgba(255, 255, 255, 0.1); 
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.6); z-index: 1000; min-width: 300px; user-select: none; 
+        }
+        .header { 
+            background: rgba(0, 212, 255, 0.15); padding: 12px 20px; cursor: move; 
+            border-radius: 12px 12px 0 0; font-weight: bold; border-bottom: 1px solid rgba(0, 212, 255, 0.3); 
+            color: #00d4ff; font-size: 0.85em; text-transform: uppercase; display: flex; justify-content: space-between;
+        }
+        .content { padding: 20px; }
+        
+        /* 日数表示パネル（右上に固定） */
+        #dayPanel {
+            position: absolute; top: 20px; right: 20px;
+            background: rgba(20, 20, 25, 0.85); backdrop-filter: blur(10px);
+            padding: 15px 25px; border-radius: 8px;
+            border: 1px solid rgba(0, 212, 255, 0.3);
+            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.5);
+            z-index: 1000; text-align: center;
+        }
+        #dayLabel { font-size: 0.7em; color: #00d4ff; text-transform: uppercase; margin-bottom: 5px; display: block; letter-spacing: 0.1em; }
+        #dayDisplay { font-family: 'Courier New', monospace; font-size: 1.8em; font-weight: bold; color: #fff; text-shadow: 0 0 10px rgba(0, 212, 255, 0.5); }
+
+        .control-group { margin-bottom: 15px; display: flex; align-items: center; justify-content: space-between; }
+        label { font-size: 0.85em; margin-right: 15px; flex: 1; }
+        input[type=range] { vertical-align: middle; width: 120px; cursor: pointer; accent-color: #00d4ff; }
+        .val-display { font-size: 0.85em; width: 50px; text-align: right; color: #00d4ff; font-family: monospace; font-weight: bold; }
+        .btn-group { display: flex; gap: 8px; margin-bottom: 15px; }
+        button { background: rgba(255, 255, 255, 0.1); color: #fff; border: 1px solid rgba(255, 255, 255, 0.2); padding: 8px; flex: 1; cursor: pointer; font-size: 0.8em; border-radius: 6px; }
+        button:hover { background: rgba(255, 255, 255, 0.2); }
+        button.active { background: #c0392b; }
+        .check-group { font-size: 0.85em; border-top: 1px solid rgba(255, 255, 255, 0.1); padding-top: 15px; line-height: 1.8; }
+    </style>
+</head>
+<body>
+
+<div id="dayPanel">
+    <span id="dayLabel">Elapsed Days</span>
+    <div id="dayDisplay">000000</div>
+</div>
+
+<div id="controls">
+    <div class="header" id="controlsHeader">
+        <span>WRM Terminal</span>
+        <span style="font-size: 10px; opacity: 0.6;">[DRAG]</span>
+    </div>
+    <div class="content">
+        <div class="control-group">
+            <label>Angle to Dipole (θ):</label>
+            <input type="range" id="anglePlane" min="0" max="180" step="1" value="90">
+            <div class="val-display" id="angleVal">90°</div>
+        </div>
+        <div class="control-group">
+            <label>Drift Velocity (v):</label>
+            <input type="range" id="vSol" min="0" max="15" step="0.5" value="1.0">
+            <div class="val-display" id="vSolVal">1.0</div>
+        </div>
+        <div class="control-group">
+            <label>Zoom Level:</label>
+            <input type="range" id="zoom" min="0.01" max="1.0" step="0.01" value="0.25">
+            <div class="val-display" id="zoomVal">0.25</div>
+        </div>
+        <div class="btn-group">
+            <button id="stopBtn">Stop</button>
+            <button id="clearBtn">Reset Pos</button>
+        </div>
+        <div class="check-group">
+            <input type="checkbox" id="showTNOs" checked> <label for="showTNOs">Display TNO dataset</label><br>
+            <input type="checkbox" id="showDipole" checked> <label for="showDipole">Show Dipole Reference</label>
+        </div>
+    </div>
+</div>
+
+<canvas id="simCanvas"></canvas>
+
+<script>
+    const canvas = document.getElementById('simCanvas');
+    const ctx = canvas.getContext('2d');
+    const dayDisplay = document.getElementById('dayDisplay');
+    
+    // 日数カウント用
+    let elapsedDays = 0;
+
+    // --- ドラッグ機能 ---
+    const controls = document.getElementById('controls');
+    const header = document.getElementById('controlsHeader');
+    let isDragging = false;
+    let offsetX, offsetY;
+
+    header.onmousedown = (e) => {
+        isDragging = true;
+        offsetX = e.clientX - controls.offsetLeft;
+        offsetY = e.clientY - controls.offsetTop;
+    };
+    document.onmousemove = (e) => {
+        if (!isDragging) return;
+        controls.style.left = (e.clientX - offsetX) + 'px';
+        controls.style.top = (e.clientY - offsetY) + 'px';
+    };
+    document.onmouseup = () => isDragging = false;
+
+    // --- シミュレーション ---
+    function resize() {
+        canvas.width = window.innerWidth;
+        canvas.height = window.innerHeight;
+    }
+    window.onresize = resize;
+    resize();
+
+    let vSol = 1.0;
+    let zoom = 0.25;
+    let planeAngleDeg = 90;
+    let isRunning = true;
+    let showTNOs = true;
+    let showDipole = true;
+
+    class Body {
+        constructor(name, color, orbitRadius, period, size, startAngle = null, isTNO = false) {
+            this.name = name; this.color = color; this.orbitRadius = orbitRadius;
+            this.period = period; this.size = size; this.isTNO = isTNO;
+            this.angle = startAngle !== null ? startAngle : Math.random() * Math.PI * 2;
+            this.history = []; 
+        }
+        update(currentSunX, currentSunY) {
+            if (!isRunning) return; 
+            this.angle += this.period * 0.1;
+            const theta = (90 - planeAngleDeg) * (Math.PI / 180);
+            const xRel = (Math.cos(this.angle) * this.orbitRadius * zoom) * Math.sin(theta);
+            const yRel = Math.sin(this.angle) * this.orbitRadius * zoom;
+            this.history.push({ x: currentSunX + xRel, y: currentSunY + yRel });
+        }
+        draw() {
+            if (this.isTNO && !showTNOs) return;
+            if (this.history.length < 2) return;
+            ctx.beginPath();
+            ctx.lineWidth = this.isTNO ? 1.0 : 1.2;
+            ctx.strokeStyle = this.color;
+            ctx.globalAlpha = this.isTNO ? 0.6 : 0.5;
+            ctx.moveTo(this.history[0].x, this.history[0].y);
+            for (let i = 1; i < this.history.length; i++) ctx.lineTo(this.history[i].x, this.history[i].y);
+            ctx.stroke();
+            ctx.globalAlpha = 1.0;
+            const last = this.history[this.history.length - 1];
+            ctx.beginPath(); ctx.arc(last.x, last.y, this.size * Math.sqrt(zoom), 0, Math.PI * 2);
+            ctx.fillStyle = this.color; ctx.fill();
+            ctx.fillStyle = "#fff"; ctx.font = `${Math.max(7, 10 * zoom)}px Arial`;
+            ctx.fillText(this.name, last.x + 5, last.y - 3);
+        }
+        clearHistoryOnly() { this.history = []; }
+    }
+
+    const bodies = [
+        new Body("Mercury", "#95a5a6", 40, 0.4, 2),
+        new Body("Venus", "#e67e22", 70, 0.15, 3),
+        new Body("Earth", "#3498db", 110, 0.1, 3.5),
+        new Body("Mars", "#e74c3c", 160, 0.06, 2.5),
+        new Body("Jupiter", "#f1c40f", 250, 0.03, 7),
+        new Body("Saturn", "#f39c12", 350, 0.012, 6),
+        new Body("Pluto", "#0000ff", 550, 0.004, 2.5, null, true),
+        new Body("Eris", "#ff00ff", 750, 0.002, 2.5, 0, true),
+        new Body("Sedna", "#ffa500", 950, 0.0015, 2, null, true),
+        new Body("2012 DR30", "#00ff00", 1100, 0.0012, 2, null, true),
+        new Body("Leleakuhonua", "#00ced1", 1250, 0.0010, 2, null, true),
+        new Body("2013 RF98", "#da70d6", 1400, 0.0009, 2, null, true),
+        new Body("2014 SR349", "#ff6347", 1550, 0.0008, 2, null, true),
+        new Body("2010 GB174", "#ffd700", 1700, 0.0007, 2, null, true),
+        new Body("2014 FE72", "#adff2f", 1850, 0.0006, 2, null, true),
+        new Body("2013 FT28", "#f08080", 2000, 0.0005, 2, null, true),
+        new Body("2015 BP519", "#87cefa", 2150, 0.00045, 2, null, true),
+        new Body("2013 SY99", "#fa8072", 2300, 0.0004, 2, null, true),
+        new Body("2007 TG422", "#90ee90", 2450, 0.00035, 2, null, true),
+        new Body("2015 GT50", "#db7093", 2600, 0.0003, 2, null, true),
+        new Body("2010 VZ98", "#eeee00", 2750, 0.00025, 2, null, true),
+        new Body("2015 KG163", "#40e0d0", 2900, 0.0002, 2, null, true),
+        new Body("2017 MB7", "#ffffff", 3050, 0.00015, 2, null, true)
+    ];
+
+    let sunX = 40; 
+
+    function animate() {
+        ctx.clearRect(0, 0, canvas.width, canvas.height); 
+        if (showDipole) {
+            const sunY = canvas.height / 2;
+            ctx.save(); ctx.setLineDash([5, 10]); ctx.strokeStyle = "#00ffcc"; ctx.lineWidth = 1; ctx.globalAlpha = 0.3;
+            ctx.beginPath(); ctx.moveTo(0, sunY); ctx.lineTo(canvas.width, sunY); ctx.stroke(); ctx.restore();
+        }
+
+        if (isRunning) {
+            sunX += vSol * 0.5;
+            elapsedDays += 1; // 日数をカウントアップ
+            
+            // 6桁表示に整形
+            dayDisplay.textContent = String(elapsedDays).padStart(6, '0');
+
+            if (sunX > canvas.width) {
+                sunX = 0; 
+                bodies.forEach(b => b.clearHistoryOnly());
+            }
+        }
+        const sunY = canvas.height / 2;
+        ctx.beginPath(); ctx.arc(sunX, sunY, 18 * zoom, 0, Math.PI * 2);
+        ctx.fillStyle = "#f1c40f"; ctx.shadowBlur = 15 * zoom; ctx.shadowColor = "#f1c40f";
+        ctx.fill(); ctx.shadowBlur = 0;
+        
+        bodies.forEach(b => { b.update(sunX, sunY); b.draw(); });
+        requestAnimationFrame(animate);
+    }
+    animate();
+
+    // UI Listeners
+    document.getElementById('anglePlane').oninput = (e) => {
+        planeAngleDeg = parseFloat(e.target.value);
+        document.getElementById('angleVal').textContent = planeAngleDeg + "°";
+        bodies.forEach(b => b.clearHistoryOnly());
+    };
+    document.getElementById('vSol').oninput = (e) => {
+        vSol = parseFloat(e.target.value);
+        document.getElementById('vSolVal').textContent = vSol.toFixed(1);
+    };
+    document.getElementById('zoom').oninput = (e) => {
+        zoom = parseFloat(e.target.value);
+        document.getElementById('zoomVal').textContent = zoom.toFixed(2);
+    };
+    document.getElementById('stopBtn').onclick = function() {
+        isRunning = !isRunning; this.textContent = isRunning ? "Stop" : "Resume";
+        this.classList.toggle('active', !isRunning);
+    };
+    document.getElementById('clearBtn').onclick = () => {
+        bodies.forEach(b => b.clearHistoryOnly()); sunX = 40; elapsedDays = 0; // 日数もリセット
+        dayDisplay.textContent = "000000";
+    };
+    document.getElementById('showTNOs').onchange = (e) => { showTNOs = e.target.checked; };
+    document.getElementById('showDipole').onchange = (e) => { showDipole = e.target.checked; };
+</script>
+</body>
+</html>

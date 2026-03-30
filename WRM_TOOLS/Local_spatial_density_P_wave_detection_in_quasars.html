@@ -1,0 +1,272 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>WRM: Broad P-Wave Analyzer v3.2</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        :root { --bg: #020617; --panel: rgba(15, 23, 42, 0.95); --accent: #3b82f6; --success: #4ade80; --text: #f1f5f9; }
+        body { background: var(--bg); color: var(--text); font-family: 'Segoe UI', sans-serif; margin: 0; padding: 10px; height: 100vh; display: flex; flex-direction: column; box-sizing: border-box; overflow: hidden; }
+        
+        .header { background: var(--panel); border: 1px solid var(--accent); border-radius: 8px; padding: 8px 15px; margin-bottom: 8px; display: flex; justify-content: space-between; align-items: center; flex-shrink: 0; }
+        
+        .main-container { display: flex; gap: 10px; flex-grow: 1; min-height: 0; }
+        
+        /* クエーサー選択パネル（レイアウト維持） */
+        .list-panel { width: 260px; background: var(--panel); border: 1px solid #1e293b; border-radius: 8px; display: flex; flex-direction: column; flex-shrink: 0; }
+        .list-header { padding: 10px; border-bottom: 1px solid #1e293b; font-weight: bold; font-size: 13px; color: var(--accent); background: rgba(0,0,0,0.2); }
+        .scroll-area { flex-grow: 1; overflow-y: scroll; padding: 5px; }
+        .scroll-area::-webkit-scrollbar { width: 8px; }
+        .scroll-area::-webkit-scrollbar-thumb { background: #334155; border-radius: 4px; }
+
+        .q-item { padding: 8px 10px; border-bottom: 1px solid #0f172a; cursor: pointer; font-size: 11px; border-radius: 4px; margin-bottom: 2px; background: rgba(255,255,255,0.02); }
+        .q-item:hover { background: #1e3a8a; }
+        .q-item.active { background: #1d4ed8; border-left: 4px solid var(--success); }
+
+        /* 右側解析パネル（グラフ表示のみ変更） */
+        .analysis-panel { flex-grow: 1; background: var(--panel); border: 1px solid var(--accent); border-radius: 8px; padding: 12px; display: flex; flex-direction: column; min-width: 0; }
+        .chart-container { flex-grow: 1; position: relative; min-height: 200px; margin: 10px 0; background: rgba(0,0,0,0.2); border-radius: 8px; }
+        
+        .info-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 5px; font-size: 12px; flex-shrink: 0; }
+        .info-card { background: rgba(0,0,0,0.4); padding: 8px; border-radius: 6px; border: 1px solid #1e293b; }
+        
+        .description-area { margin-top: 10px; padding-top: 8px; border-top: 1px solid #1e293b; font-size: 11px; color: #94a3b8; line-height: 1.4; flex-shrink: 0; }
+        .desc-title { color: var(--success); font-weight: bold; margin-right: 5px; }
+    </style>
+</head>
+<body>
+
+<div class="header">
+    <div style="font-size:14px;"><span style="font-weight:bold; color:var(--accent);">WRM v3.2</span> | P-Wave Periodicity Extraction</div>
+    <div style="font-size:10px; color:#ff4444; border: 1px solid #ff4444; padding: 2px 5px; border-radius: 4px;">BROAD VIEW MODE</div>
+</div>
+
+<div class="main-container">
+    <div class="list-panel">
+        <div class="list-header">Quasar List (Sorted by z)</div>
+        <div class="scroll-area" id="list-root"></div>
+    </div>
+
+    <div class="analysis-panel">
+        <div id="target-name" style="font-size:18px; font-weight:bold; color:var(--success);">Analyzing Cosmic Grid...</div>
+        
+        <div class="chart-container">
+            <canvas id="broadChart"></canvas>
+        </div>
+
+        <div class="info-grid">
+            <div class="info-card" id="wave-stats"><strong>Wave Analysis:</strong><br>Select a target.</div>
+            <div class="info-card" id="wrm-correction"><strong>WRM Correction:</strong><br>Axis deviation values.</div>
+        </div>
+
+        <div class="description-area">
+            <p><span class="desc-title">● 疎密の等間隔性:</span> グラフの「山」は空間の圧縮帯です。クエーサーがここに集中する現象が「赤方偏移の量子化」の正体です。</p>
+            <p><span class="desc-title">● 高調波の干渉:</span> 1兆光年規模のシリンダー内での反射・共振により、複雑な定常波の節が形成されています。</p>
+            <p><span class="desc-title">● ダイポール軸連動:</span> P波はS波と同じ軸（RA 168°）を伝播するため、軸に近いほどこの層状構造が顕著になります。</p>
+        </div>
+    </div>
+</div>
+
+
+
+
+
+<script>
+    // 100個のデータセット（Axis Deviation順に自動ソートされます）
+    // ※お手持ちの100個のフルデータをこの配列内に反映させてください
+const QUASAR_DB = [
+    {name: "ULAS J1120+0641", z: 7.085, ra: 170.0}, // Dev: 2.0°
+    {name: "SDSS J1148+5251", z: 6.42, ra: 177.1}, // Dev: 9.1°
+    {name: "SDSS J1030+0524", z: 6.28, ra: 157.6}, // Dev: 10.4°
+    {name: "SDSS J1044-0125", z: 5.78, ra: 161.1}, // Dev: 6.9°
+    {name: "Markarian 421", z: 0.03, ra: 166.1},  // Dev: 1.9°
+    {name: "3C 234", z: 0.185, ra: 150.5},        // Dev: 17.5°
+    {name: "Ton 490", z: 1.631, ra: 153.2},       // Dev: 14.8°
+    {name: "1ES 1011+496", z: 0.212, ra: 153.7},  // Dev: 14.3°
+    {name: "S4 0954+65", z: 0.368, ra: 149.7},    // Dev: 18.3°
+    {name: "B2 1156+29", z: 0.729, ra: 179.8},    // Dev: 11.8°
+    {name: "PG 1211+143", z: 0.0809, ra: 183.5},  // Dev: 15.5°
+    {name: "W Comae", z: 0.102, ra: 185.3},        // Dev: 17.3°
+    {name: "PKS 1222+216", z: 0.432, ra: 186.2},  // Dev: 18.2°
+    {name: "B2 1225+31", z: 2.219, ra: 187.0},    // Dev: 19.0°
+    {name: "3C 273", z: 0.158, ra: 187.2},        // Dev: 19.2°
+    {name: "PG 1241+176", z: 1.27, ra: 191.0},    // Dev: 23.0°
+    {name: "PC 1247+3406", z: 4.89, ra: 192.4},   // Dev: 24.4°
+    {name: "3C 279", z: 0.536, ra: 194.0},        // Dev: 26.0°
+    {name: "SDSS J1306+0356", z: 5.99, ra: 196.6}, // Dev: 28.6°
+    {name: "3C 286", z: 0.849, ra: 202.7},        // Dev: 34.7°
+    {name: "3C 295", z: 0.464, ra: 212.8},        // Dev: 44.8°
+    {name: "SDSS J1411-1229", z: 5.93, ra: 212.8}, // Dev: 44.8°
+    {name: "B1422+231", z: 3.62, ra: 216.1},      // Dev: 48.1°
+    {name: "PKS 1424+240", z: 0.604, ra: 216.7},  // Dev: 48.7°
+    {name: "H 1426+428", z: 0.129, ra: 217.1},    // Dev: 49.1°
+    {name: "PKS 1502+106", z: 1.84, ra: 226.2},   // Dev: 58.2°
+    {name: "PKS 1510-08", z: 0.36, ra: 228.2},    // Dev: 60.2°
+    {name: "SBS 1520+530", z: 0.71, ra: 230.3},   // Dev: 62.3°
+    {name: "PG 1553+113", z: 0.4, ra: 238.9},     // Dev: 70.9°
+    {name: "SDSS J1623+3112", z: 6.22, ra: 245.9}, // Dev: 77.9°
+    {name: "4C +38.41", z: 1.814, ra: 247.1},     // Dev: 79.1°
+    {name: "3C 345", z: 0.594, ra: 250.7},        // Dev: 82.7°
+    {name: "Ton 1542 (Markarian 501)", z: 0.033, ra: 253.4}, // Dev: 85.4°
+    {name: "HS 1700+6416", z: 2.72, ra: 255.1},   // Dev: 87.1°
+    {name: "S5 1803+78", z: 0.68, ra: 270.3},     // Dev: 102.3°
+    {name: "3C 371", z: 0.051, ra: 271.7},        // Dev: 103.7°
+    {name: "3C 380", z: 0.692, ra: 277.4},        // Dev: 109.4°
+    {name: "HS 1946+7658", z: 3.05, ra: 296.8},   // Dev: 128.8°
+    {name: "1ES 1959+650", z: 0.048, ra: 299.9},  // Dev: 131.9°
+    {name: "PKS 2000-330", z: 3.78, ra: 300.9},   // Dev: 132.9°
+    {name: "PKS 2005-489", z: 0.071, ra: 302.4},  // Dev: 134.4°
+    {name: "3C 446", z: 1.404, ra: 335.8},        // Dev: 167.8°
+    {name: "CTA 102", z: 1.037, ra: 338.1},       // Dev: 170.1°
+    {name: "3C 454.3", z: 0.859, ra: 343.4},      // Dev: 175.4°
+    {name: "1ES 2344+514", z: 0.044, ra: 356.9},  // Dev: 171.1°
+    {name: "H 2356-309", z: 0.165, ra: 359.8},    // Dev: 168.2°
+    {name: "Q 0000-263", z: 4.11, ra: 0.4},       // Dev: 167.6°
+    {name: "3C 9", z: 2.012, ra: 5.4},            // Dev: 162.6°
+    {name: "PG 0052+251", z: 0.155, ra: 13.7},    // Dev: 154.3°
+    {name: "SDSS J0100+2802", z: 6.30, ra: 15.0}, // Dev: 153.0°
+    {name: "PHL 957", z: 2.69, ra: 17.0},         // Dev: 151.0°
+    {name: "3C 48", z: 0.367, ra: 24.4},          // Dev: 143.6°
+    {name: "MG1 J0217+0144", z: 1.71, ra: 34.2},  // Dev: 133.8°
+    {name: "S3 0218+35", z: 0.944, ra: 35.3},     // Dev: 132.7°
+    {name: "3C 66A", z: 0.444, ra: 35.6},         // Dev: 132.4°
+    {name: "AO 0235+16", z: 0.94, ra: 39.6},      // Dev: 128.4°
+    {name: "PKS 0405-12", z: 0.574, ra: 61.9},    // Dev: 106.1°
+    {name: "QSO 0420-014", z: 0.915, ra: 65.7},   // Dev: 102.3°
+    {name: "3C 120", z: 0.033, ra: 68.3},         // Dev: 99.7°
+    {name: "HE 0435-1223", z: 0.442, ra: 69.4},   // Dev: 98.6°
+    {name: "PKS 0447-439", z: 0.205, ra: 72.3},   // Dev: 95.7°
+    {name: "TXS 0506+056", z: 0.336, ra: 77.4},   // Dev: 90.6°
+    {name: "3C 138", z: 0.759, ra: 78.7},         // Dev: 89.3°
+    {name: "VER J0521+211", z: 0.108, ra: 80.3},  // Dev: 87.7°
+    {name: "Q 0528-250", z: 2.77, ra: 82.5},      // Dev: 85.5°
+    {name: "PKS 0528+134", z: 2.07, ra: 82.8},    // Dev: 85.2°
+    {name: "PKS 0537-441", z: 0.89, ra: 84.7},    // Dev: 83.3°
+    {name: "3C 147", z: 0.545, ra: 85.7},         // Dev: 82.3°
+    {name: "PKS 0558-504", z: 0.137, ra: 89.9},   // Dev: 78.1°
+    {name: "RGB J0710+591", z: 0.125, ra: 107.6}, // Dev: 60.4°
+    {name: "S5 0716+714", z: 0.31, ra: 110.4},    // Dev: 57.6°
+    {name: "3C 191", z: 1.956, ra: 121.2},        // Dev: 46.8°
+    {name: "3C 196", z: 0.871, ra: 123.5},        // Dev: 44.5°
+    {name: "APM 08279+5255", z: 3.911, ra: 128.2}, // Dev: 39.8°
+    {name: "SDSS J0836+0054", z: 5.82, ra: 129.1}, // Dev: 38.9°
+    {name: "S5 0836+71", z: 2.17, ra: 130.3},     // Dev: 37.7°
+    {name: "3C 212", z: 1.048, ra: 133.0},        // Dev: 35.0°
+    {name: "OJ 287", z: 0.306, ra: 133.7},        // Dev: 34.3°
+    {name: "BLLac", z: 0.068, ra: 330.6},         // Dev: 162.6°
+    {name: "PKS 2155-304", z: 0.116, ra: 329.7},  // Dev: 161.7°
+    {name: "BR 1202-0725", z: 4.69, ra: 181.3},   // Dev: 13.3°
+    {name: "S5 0014+81", z: 3.366, ra: 4.5}       // Dev: 163.5°
+];
+    const listDiv = document.getElementById('list-root');
+    const canvas = document.getElementById('broadChart');
+    const chartCtx = canvas.getContext('2d');
+    let currentChart = null;
+
+    // 軸偏差を計算する共通関数
+    function getAxisDev(ra) {
+        const DIPOLE_RA = 168;
+        const diff = Math.abs(ra - DIPOLE_RA);
+        return diff > 180 ? 360 - diff : diff;
+    }
+
+    function init() {
+        listDiv.innerHTML = '';
+        // 1. Axis Deviationの順に並べ替え
+        QUASAR_DB.sort((a, b) => getAxisDev(a.ra) - getAxisDev(b.ra));
+
+        QUASAR_DB.forEach((q, idx) => {
+            const dev = getAxisDev(q.ra);
+            const item = document.createElement('div');
+            item.className = 'q-item';
+            // リストに偏差角度を表示して、境界を見つけやすくします
+            item.innerHTML = `<strong>${q.name}</strong> <span style="font-size:0.8em; color:#94a3b8;">(Dev: ${dev.toFixed(1)}°)</span>`;
+            item.onclick = () => selectQuasar(q, item);
+            listDiv.appendChild(item);
+            if(idx === 0) selectQuasar(q, item);
+        });
+    }
+
+    function selectQuasar(q, element) {
+        document.querySelectorAll('.q-item').forEach(el => el.classList.remove('active'));
+        element.classList.add('active');
+        document.getElementById('target-name').innerText = q.name;
+        
+        const axisDev = getAxisDev(q.ra);
+        
+        // 1. 理論補正（赤）
+        const theoryZ = q.z * (1.0 + Math.cos(axisDev * Math.PI / 180) * 0.012);
+
+        // 2. 方位位相回転（マゼンタ）
+        const azimuthalShift = (axisDev / 180) * Math.PI; 
+
+        let magentaZ = theoryZ;
+        let maxMagAmp = -999;
+        for(let cz = theoryZ - 0.15; cz <= theoryZ + 0.15; cz += 0.001) {
+            const amp = Math.sin(cz * Math.PI / 0.06 + azimuthalShift) + 
+                        Math.sin(cz * Math.PI / 0.02 + azimuthalShift) * 0.3;
+            if(amp > maxMagAmp) { maxMagAmp = amp; magentaZ = cz; }
+        }
+
+        // 3. 標準収束（黄）
+        let yellowZ = theoryZ;
+        let maxYelAmp = -999;
+        for(let cz = theoryZ - 0.06; cz <= theoryZ + 0.06; cz += 0.001) {
+            const amp = Math.sin(cz * Math.PI / 0.06) + Math.sin(cz * Math.PI / 0.02) * 0.3;
+            if(amp > maxYelAmp) { maxYelAmp = amp; yellowZ = cz; }
+        }
+
+        document.getElementById('wave-stats').innerHTML = `
+            実測(z): ${q.z} | <span style="color:#ff00ff">方位位相補正: ${magentaZ.toFixed(4)}</span>
+        `;
+        document.getElementById('wrm-correction').innerHTML = `
+            Axis Deviation: ${axisDev.toFixed(1)}° (順序ソート済)<br>
+            Azimuthal Rotation: ${(azimuthalShift).toFixed(3)} rad
+        `;
+        
+        updateChart(q, theoryZ, yellowZ, magentaZ);
+    }
+
+    function updateChart(q, theoryZ, yellowZ, magentaZ) {
+        if(currentChart) currentChart.destroy();
+        const labels = [], baseWave = [], obsPos = [], theoryPos = [], yellowPos = [], magentaPos = [];
+        const range = 0.4;
+
+        for(let z = q.z - range; z <= q.z + range; z += 0.005) {
+            if(z < 0) continue;
+            labels.push(z.toFixed(3));
+            const w = Math.sin(z * Math.PI / 0.06) + Math.sin(z * Math.PI / 0.02) * 0.3;
+            baseWave.push(w);
+            if(Math.abs(z - q.z) < 0.003) obsPos.push(w); else obsPos.push(null);
+            if(Math.abs(z - theoryZ) < 0.003) theoryPos.push(w); else theoryPos.push(null);
+            if(Math.abs(z - yellowZ) < 0.003) yellowPos.push(w); else yellowPos.push(null);
+            if(Math.abs(z - magentaZ) < 0.003) magentaPos.push(w); else magentaPos.push(null);
+        }
+
+        currentChart = new Chart(chartCtx, {
+            type: 'line',
+            data: {
+                labels: labels,
+                datasets: [
+                    { label: 'P波', data: baseWave, borderColor: '#3b82f6', borderWidth: 1, pointRadius: 0, fill: false },
+                    { label: '● 観測', data: obsPos, borderColor: '#00ffff', backgroundColor: '#00ffff', pointRadius: 4, showLine: false },
+                    { label: '○ 理論', data: theoryPos, borderColor: '#ff4444', backgroundColor: 'transparent', pointRadius: 6, showLine: false },
+                    { label: '● 収束(標準)', data: yellowPos, borderColor: '#facc15', backgroundColor: '#facc15', pointRadius: 5, showLine: false },
+                    { label: '● 方位補正', data: magentaPos, borderColor: '#ff00ff', backgroundColor: '#ff00ff', pointRadius: 6, showLine: false }
+                ]
+            },
+            options: {
+                responsive: true, maintainAspectRatio: false,
+                plugins: { legend: { display: true, position: 'top', labels: { color: '#fff', font: {size: 10} } } },
+                scales: { y: { display: false } }
+            }
+        });
+    }
+    init();
+</script>
+
+
+
+</body>
+</html>

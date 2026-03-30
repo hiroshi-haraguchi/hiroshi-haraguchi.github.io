@@ -1,0 +1,208 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <title>WRM: TNOs Interactive Analysis v1.0</title>
+    <style>
+        body { margin: 0; background: #020617; color: #fff; font-family: 'Segoe UI', 'Hiragino Kaku Gothic ProN', Meiryo, sans-serif; overflow: hidden; }
+        #container { display: flex; flex-direction: column; height: 100vh; }
+        
+        #header-ui { 
+            background: rgba(15, 23, 42, 0.98); padding: 15px 25px; 
+            border-bottom: 2px solid #3b82f6; z-index: 10; 
+            max-height: 35vh; overflow-y: auto;
+        }
+        
+        #canvas-wrap { flex-grow: 1; position: relative; background: #000; overflow: hidden; }
+        canvas { cursor: move; width: 100%; height: 100%; }
+        
+        /* スライダーサイズを元に戻す (物理長200px) */
+        #zoom-controls {
+            position: absolute; right: 25px; top: 50%; transform: translateY(-50%);
+            display: flex; flex-direction: column; align-items: center;
+            background: rgba(30, 41, 59, 0.9); padding: 20px 8px; border-radius: 30px; border: 1px solid #3b82f6; z-index: 20;
+        }
+        #zoom-slider {
+            appearance: none; width: 200px; height: 6px; background: #1e293b;
+            transform: rotate(-90deg); margin: 90px -85px; cursor: pointer; border-radius: 3px;
+        }
+        #zoom-slider::-webkit-slider-thumb { appearance: none; width: 20px; height: 20px; background: #60a5fa; border-radius: 50%; border: 2px solid #fff; }
+        .zoom-label { font-size: 11px; color: #60a5fa; font-weight: bold; margin: 5px 0; }
+
+        #footer-logic { 
+            background: rgba(15, 23, 42, 0.98); padding: 20px 25px; 
+            border-top: 2px solid #3b82f6; font-size: 13px; line-height: 1.6;
+        }
+
+        h2, h3 { color: #60a5fa; margin: 0 0 10px 0; }
+        .dipole-tag { color: #ff4444; font-weight: bold; }
+        
+        table { width: 100%; border-collapse: collapse; font-size: 10px; margin-top: 5px; }
+        th, td { border: 1px solid #334155; padding: 4px 8px; text-align: left; }
+        th { background: #1e293b; color: #94a3b8; position: sticky; top: 0; }
+        
+        /* ラジオボタンと強調表示のスタイル */
+        input[type="radio"] { cursor: pointer; accent-color: #60a5fa; }
+        .sync-match { color: #4ade80; }
+        .sync-inverse { color: #f472b6; }
+        .highlight-row { background: rgba(59, 130, 246, 0.2); }
+    </style>
+</head>
+<body>
+
+<div id="container">
+    <div id="header-ui">
+        <h2>WRM: TNOs Comprehensive Dataset (Interactive Mode)</h2>
+        <div style="font-size: 13px; margin-bottom: 10px;">
+            天体を選択すると、その軌道が強調表示されます。ダイポール軸：<span class="dipole-tag">RA 168°</span>
+        </div>
+        <table>
+            <thead>
+                <tr><th>選択</th><th>天体名</th><th>a (AU)</th><th>e</th><th>近日点方向</th><th>WRM理論による詳細解説</th></tr>
+            </thead>
+            <tbody id="tno-table-body"></tbody>
+        </table>
+    </div>
+
+    <div id="canvas-wrap">
+        <canvas id="render"></canvas>
+        <div id="zoom-controls">
+            <span class="zoom-label">MAX IN</span>
+            <input type="range" id="zoom-slider" min="0.3" max="10.0" step="0.005" value="0.5">
+            <span class="zoom-label">OUT</span>
+        </div>
+    </div>
+
+    <div id="footer-logic">
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px;">
+            <div style="background: rgba(30, 41, 59, 0.6); padding: 15px; border-radius: 8px;">
+                <h3>理論：軸への収束と屈折</h3>
+                RA 168°のダイポール軸は宇宙の「構造的勾配」です。外縁天体の近日点がこの軸（またはその真裏）に集中する現象は、重力源ではなく、外部波による測地線の物理的屈折を示しています。
+            </div>
+            <div style="background: rgba(30, 41, 59, 0.6); padding: 15px; border-radius: 8px;">
+                <h3>同期の定義</h3>
+                <strong>同位相:</strong> 軸方向（RA 168°付近）への集中。直接的な屈折効果。<br>
+                <strong>逆位相:</strong> 軸の反対側（RA 348°付近）への集中。波の「節（ノード）」による干渉。
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+    const canvas = document.getElementById('render');
+    const ctx = canvas.getContext('2d');
+    const zoomSlider = document.getElementById('zoom-slider');
+    let width, height, rotX = 1.1, rotY = 0.4, zoom = 0.5, isDragging = false, lastX, lastY;
+    let selectedTno = "Sedna"; // 初期選択
+
+    const tnoData = [
+        { name: "Sedna", a: 480, e: 0.84, i: 11.9, w: 311, note: "同位相同期：軸と精密一致。", status: "match" },
+        { name: "2012 DR30", a: 1032, e: 0.98, i: 77.9, w: 195, note: "同位相同期：屈折効果最大。", status: "match" },
+        { name: "Leleakuhonua", a: 1090, e: 0.93, i: 9.4, w: 304, note: "同位相同期：広域勾配の実証。", status: "match" },
+        { name: "2013 RF98", a: 349, e: 0.89, i: 29.6, w: 311, note: "同位相同期：典型的クラスタ。", status: "match" },
+        { name: "2014 SR349", a: 292, e: 0.84, i: 18.0, w: 341, note: "同位相同期：軸への高い収束。", status: "match" },
+        { name: "2010 GB174", a: 371, e: 0.87, i: 21.5, w: 347, note: "同位相同期：軸にトラップ。", status: "match" },
+        { name: "2014 FE72", a: 1550, e: 0.97, i: 20.6, w: 134, note: "逆位相同期：軸の真裏での干渉。", status: "inverse" },
+        { name: "2013 FT28", a: 310, e: 0.86, i: 17.3, w: 40, note: "逆位相同期：定常波の反対節。", status: "inverse" },
+        { name: "2015 BP519", a: 450, e: 0.92, i: 54.1, w: 348, note: "高角同期：垂直屈折の痕跡。", status: "inverse" },
+        { name: "2013 SY99", a: 733, e: 0.93, i: 4.2, w: 32, note: "逆位相同期：長周期の干渉。", status: "inverse" },
+        { name: "2007 TG422", a: 493, e: 0.92, i: 18.6, w: 285, note: "同位相同期：セドナ群に属する。", status: "match" },
+        { name: "2015 GT50", a: 300, e: 0.89, i: 8.8, w: 129, note: "不明：現在の軸定義では相関弱。", status: "unknown" },
+        { name: "2010 VZ98", a: 151, e: 0.77, i: 4.5, w: 313, note: "同位相同期：近傍での屈折。", status: "match" },
+        { name: "2015 KG163", a: 825, e: 0.95, i: 14.0, w: 32, note: "逆位相同期：干渉縞への配置。", status: "inverse" },
+        { name: "2017 MB7", a: 1450, e: 0.99, i: 55.7, w: 80, note: "逆位相同期：長周期の反対節。", status: "inverse" }
+    ];
+
+    const tbody = document.getElementById('tno-table-body');
+    tnoData.forEach(t => {
+        const ra = ((t.w + 168) % 360).toFixed(0);
+        const row = document.createElement('tr');
+        row.id = `row-${t.name}`;
+        row.innerHTML = `
+            <td><input type="radio" name="tno-select" value="${t.name}" ${t.name === selectedTno ? 'checked' : ''}></td>
+            <td>${t.name}</td><td>${t.a}</td><td>${t.e}</td><td>RA ${ra}°付近</td>
+            <td class="${t.status==='match'?'sync-match':'sync-inverse'}">${t.note}</td>`;
+        row.onclick = () => {
+            document.querySelector(`input[value="${t.name}"]`).checked = true;
+            selectedTno = t.name;
+        };
+        tbody.appendChild(row);
+    });
+
+    document.getElementsByName('tno-select').forEach(radio => {
+        radio.onchange = (e) => { selectedTno = e.target.value; };
+    });
+
+    zoomSlider.addEventListener('input', (e) => { zoom = parseFloat(e.target.value); });
+    function resize() { width = canvas.width = canvas.parentElement.clientWidth; height = canvas.height = canvas.parentElement.clientHeight; }
+    window.addEventListener('resize', resize); resize();
+
+    function project(x, y, z) {
+        let x1 = x * Math.cos(rotY) - z * Math.sin(rotY);
+        let z1 = x * Math.sin(rotY) + z * Math.cos(rotY);
+        let y2 = y * Math.cos(rotX) - z1 * Math.sin(rotX);
+        let z2 = y * Math.sin(rotX) + z1 * Math.cos(rotX);
+        const s = (Math.min(width, height) * 4.0 * zoom) / (z2 + 8000);
+        return { x: width/2 + x1 * s, y: height/2 - y2 * s, z: z2 };
+    }
+
+    function draw() {
+        ctx.fillStyle = '#020617'; ctx.fillRect(0, 0, width, height);
+        const dipRA = 168 * Math.PI / 180;
+        const p0 = project(0, 0, 0);
+        const pD = project(Math.cos(dipRA)*6000, 0, Math.sin(dipRA)*6000);
+        
+        ctx.strokeStyle = '#ff4444'; ctx.lineWidth = 3;
+        ctx.beginPath(); ctx.moveTo(p0.x, p0.y); ctx.lineTo(pD.x, pD.y); ctx.stroke();
+
+        tnoData.forEach(t => {
+            const isSelected = t.name === selectedTno;
+            let color;
+            if (t.status === "match") color = isSelected ? "#00ff00" : "#fbbf24";
+            else if (t.status === "inverse") color = isSelected ? "#00ffff" : "#f472b6";
+            else color = "#4b5563";
+
+            ctx.strokeStyle = color;
+            ctx.globalAlpha = isSelected ? 1.0 : 0.25;
+            ctx.lineWidth = isSelected ? 3.5 : 1.2;
+            
+            ctx.beginPath();
+            const b = t.a * Math.sqrt(1 - t.e * t.e), focus = t.a * t.e;
+            let periP = null, labelP = null;
+            for (let j = 0; j <= 120; j++) {
+                const ang = (j / 120) * Math.PI * 2;
+                let ex = t.a * Math.cos(ang) - focus, ez = b * Math.sin(ang);
+                let wR = (t.w + 168) * Math.PI / 180;
+                let rx = ex * Math.cos(wR) - ez * Math.sin(wR), rz = ex * Math.sin(wR) + ez * Math.cos(wR), ry = rx * Math.sin(t.i * Math.PI/180);
+                const p = project(rx, ry, rz);
+                if (j === 0) { ctx.moveTo(p.x, p.y); periP = p; } else ctx.lineTo(p.x, p.y);
+                if (j === 30) labelP = p;
+            }
+            ctx.stroke();
+
+            if (isSelected || zoom > 0.4) {
+                ctx.globalAlpha = 1.0;
+                ctx.fillStyle = isSelected ? "#fff" : color;
+                ctx.font = isSelected ? "bold 14px Arial" : "10px Arial";
+                if(labelP) {
+                    ctx.strokeStyle = '#000'; ctx.lineWidth = 3; 
+                    ctx.strokeText(t.name, labelP.x, labelP.y);
+                    ctx.fillText(t.name, labelP.x, labelP.y);
+                }
+                if(periP) {
+                    ctx.beginPath(); ctx.arc(periP.x, periP.y, isSelected ? 4 : 2, 0, Math.PI*2); ctx.fill();
+                }
+            }
+        });
+        ctx.fillStyle = '#ffcc00'; ctx.beginPath(); ctx.arc(p0.x, p0.y, 5, 0, Math.PI*2); ctx.fill();
+        requestAnimationFrame(draw);
+    }
+
+    canvas.onmousedown = (e) => { isDragging = true; lastX = e.clientX; lastY = e.clientY; };
+    window.onmouseup = () => isDragging = false;
+    window.onmousemove = (e) => { if (!isDragging) return; rotY += (e.clientX - lastX) * 0.005; rotX += (e.clientY - lastY) * 0.005; lastX = e.clientX; lastY = e.clientY; };
+    window.onwheel = (e) => { zoom *= (e.deltaY > 0 ? 0.95 : 1.05); zoom = Math.max(0.3, Math.min(10.0, zoom)); zoomSlider.value = zoom; e.preventDefault(); };
+    draw();
+</script>
+</body>
+</html>

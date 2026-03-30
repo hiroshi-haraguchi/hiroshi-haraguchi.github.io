@@ -1,0 +1,161 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>WRM Oscillation Simulator - α=0.046 Refined</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/3.9.1/chart.min.js"></script>
+    <script id="MathJax-script" async src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js"></script>
+    <style>
+        body { background-color: #020617; color: #f8fafc; font-family: 'Inter', sans-serif; }
+        .glass-panel { background: rgba(15, 23, 42, 0.8); backdrop-filter: blur(12px); border: 1px solid rgba(255, 255, 255, 0.1); }
+        .accent-glow { box-shadow: 0 0 20px rgba(59, 130, 246, 0.2); }
+        input[type="range"] { accent-color: #3b82f6; cursor: pointer; }
+    </style>
+</head>
+<body class="p-4 md:p-8 min-h-screen">
+    <div class="max-w-6xl mx-auto">
+        <header class="mb-8 border-b border-slate-800 pb-6">
+            <h1 class="text-3xl font-bold bg-gradient-to-r from-blue-400 to-emerald-400 bg-clip-text text-transparent">
+                WRM Oscillation Simulator v3.5.1
+            </h1>
+            <p class="text-slate-400 mt-2">外部波干渉による時空屈折率 \(n(t)\) の変調解析</p>
+        </header>
+
+        <div class="grid grid-cols-1 lg:grid-cols-12 gap-8">
+            <div class="lg:col-span-4 space-y-6">
+                <div class="glass-panel p-6 rounded-2xl accent-glow">
+                    <h2 class="text-sm font-bold text-blue-400 uppercase tracking-widest mb-6">干渉パラメータ設定</h2>
+                    
+                    <div class="space-y-8">
+                        <div>
+                            <div class="flex justify-between mb-2">
+                                <label class="text-xs text-slate-300">高調波強度 (\(\beta\))</label>
+                                <span id="valHarm" class="text-blue-400 font-mono font-bold">0.46</span>
+                            </div>
+                            <input type="range" id="inputHarm" min="0" max="1" step="0.01" value="0.46" class="w-full">
+                            <p class="text-[10px] text-slate-500 mt-2">\(\alpha\)由来の倍音（時空の伸縮に伴う非線形歪み）</p>
+                        </div>
+
+                        <div>
+                            <div class="flex justify-between mb-2">
+                                <label class="text-xs text-slate-300">うなり周波数 (\(\Delta f\))</label>
+                                <span id="valBeat" class="text-emerald-400 font-mono font-bold">0.12</span>
+                            </div>
+                            <input type="range" id="inputBeat" min="0" max="0.5" step="0.01" value="0.12" class="w-full">
+                            <p class="text-[10px] text-slate-500 mt-2">外部波の位相差による長周期のゆらぎ（マルチバース境界のさざ波による干渉）</p>
+                        </div>
+
+                        <div>
+                            <div class="flex justify-between mb-2">
+                                <label class="text-xs text-slate-300">局所エントロピー (Local Noise)</label>
+                                <span id="valNoise" class="text-slate-400 font-mono font-bold">0.05</span>
+                            </div>
+                            <input type="range" id="inputNoise" min="0" max="0.2" step="0.01" value="0.05" class="w-full">
+                        </div>
+                    </div>
+                </div>
+
+                <div class="glass-panel p-6 rounded-2xl border-l-4 border-blue-500">
+                    <h3 class="text-xs font-bold text-slate-400 uppercase mb-3">理論値の整合性</h3>
+                    <div class="text-sm text-slate-300 space-y-2">
+                        <p>\(\alpha = 0.046\) は時空の境界における屈折率 \(n(t)\) の変調振幅です。外部波の干渉により、観測される時間軸は以下の式に従い伸縮します：</p>
+                        <div class="bg-slate-900/50 p-3 rounded font-mono text-xs text-blue-300">
+                            \(n(t) = 1 + \alpha \cdot \cos(\omega t + \phi)\)
+                        </div>
+                        <p class="text-[10px] text-slate-500">この微小な屈折が、30年周期の観測データに「偏差」を生む物理的原因です。</p>
+                    </div>
+                </div>
+            </div>
+
+            <div class="lg:col-span-8 space-y-6">
+                <div class="glass-panel p-6 rounded-3xl h-[500px] flex flex-col relative">
+                    <div class="absolute top-6 right-6 px-3 py-1 bg-blue-500/10 border border-blue-500/20 rounded-full">
+                        <span class="text-[10px] font-bold text-blue-400">時空変調シミュレーション</span>
+                    </div>
+                    <h2 class="text-xl font-bold mb-6 text-slate-200">合成波形プレビュー (60年スパン)</h2>
+                    <div class="flex-grow">
+                        <canvas id="oscillationChart"></canvas>
+                    </div>
+                </div>
+
+                <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+                    <div class="glass-panel p-4 rounded-xl text-center">
+                        <div class="text-[10px] text-slate-500 uppercase mb-1">主周期 (Base Period)</div>
+                        <div class="text-lg font-bold text-slate-200">~30.2 年</div>
+                    </div>
+                    <div class="glass-panel p-4 rounded-xl text-center">
+                        <div class="text-[10px] text-slate-500 uppercase mb-1">微細変動ピーク</div>
+                        <div id="peakCount" class="text-lg font-bold text-blue-400">5 - 7 年</div>
+                    </div>
+                    <div class="glass-panel p-4 rounded-xl text-center border border-emerald-500/30">
+                        <div class="text-[10px] text-emerald-500 uppercase mb-1">境界屈折係数 (\(\alpha\))</div>
+                        <div class="text-lg font-bold text-emerald-400">0.046 (4.6%)</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const alpha = 0.046;
+        let chart;
+
+        function initChart() {
+            const ctx = document.getElementById('oscillationChart').getContext('2d');
+            chart = new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels: [],
+                    datasets: [
+                        { label: '合成波形 (WRM Model)', data: [], borderColor: '#3b82f6', borderWidth: 3, pointRadius: 0, tension: 0.4, fill: { target: 'origin', above: 'rgba(59, 130, 246, 0.05)' } },
+                        { label: '主周期 (Base Wave)', data: [], borderColor: 'rgba(255, 255, 255, 0.1)', borderWidth: 1, borderDash: [5, 5], pointRadius: 0, fill: false }
+                    ]
+                },
+                options: {
+                    responsive: true, maintainAspectRatio: false,
+                    interaction: { intersect: false, mode: 'index' },
+                    plugins: { legend: { display: false } },
+                    scales: {
+                        y: { grid: { color: 'rgba(255, 255, 255, 0.03)' }, ticks: { color: '#475569', font: { size: 10 } }, min: -1.5, max: 1.5 },
+                        x: { grid: { color: 'rgba(255, 255, 255, 0.03)' }, ticks: { color: '#475569', font: { size: 10 } } }
+                    }
+                }
+            });
+            updateSimulation();
+        }
+
+        function updateSimulation() {
+            const harm = parseFloat(document.getElementById('inputHarm').value);
+            const beat = parseFloat(document.getElementById('inputBeat').value);
+            const noiseAmp = parseFloat(document.getElementById('inputNoise').value);
+
+            document.getElementById('valHarm').innerText = harm.toFixed(2);
+            document.getElementById('valBeat').innerText = beat.toFixed(2);
+            document.getElementById('valNoise').innerText = noiseAmp.toFixed(2);
+
+            const labels = []; const compositeData = []; const baseData = [];
+            for (let t = 0; t <= 60; t += 0.2) {
+                labels.push(t.toFixed(1));
+                const base = Math.sin(2 * Math.PI * t / 30);
+                const h3 = (alpha * harm) * Math.sin(2 * Math.PI * t / 10);
+                const h5 = (alpha * harm * 0.5) * Math.sin(2 * Math.PI * t / 6);
+                const beatWave = (beat * 0.2) * Math.sin(2 * Math.PI * t / 50);
+                const noise = (Math.random() - 0.5) * noiseAmp;
+                compositeData.push(base + h3 + h5 + beatWave + noise);
+                baseData.push(base);
+            }
+            chart.data.labels = labels;
+            chart.data.datasets[0].data = compositeData;
+            chart.data.datasets[1].data = baseData;
+            chart.update('none');
+        }
+
+        ['inputHarm', 'inputBeat', 'inputNoise'].forEach(id => {
+            document.getElementById(id).addEventListener('input', updateSimulation);
+        });
+        window.onload = initChart;
+    </script>
+</body>
+</html>

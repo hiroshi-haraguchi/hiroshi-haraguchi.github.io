@@ -1,0 +1,177 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <title>WRM v6.4.5: Empirical Benchmark Mapping (Display Fixed)</title>
+    <script id="MathJax-script" async src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;700&display=swap');
+        body { margin: 0; background: #010409; color: #f8fafc; font-family: 'Inter', sans-serif; }
+        
+        #main-scroll-container {
+            display: flex; flex-direction: column; align-items: center;
+            width: 100%; min-height: 100vh; padding-bottom: 100px;
+        }
+
+        #explanation-panel {
+            width: 90%; max-width: 1100px; margin: 30px 0;
+            background: rgba(13, 17, 23, 0.95); padding: 25px;
+            border-radius: 15px; border: 1px solid #3b82f6;
+            line-height: 1.7; font-size: 14.5px; box-shadow: 0 0 30px rgba(59,130,246,0.2);
+        }
+
+        #visual-area {
+            width: 90%; max-width: 1100px; aspect-ratio: 16/9;
+            background: #000; border: 1px solid #30363d; border-radius: 15px;
+            cursor: move; position: relative; touch-action: none;
+            overflow: hidden; display: flex; align-items: center; justify-content: center;
+        }
+
+        #evidence-panel {
+            width: 90%; max-width: 1100px; margin-top: 40px;
+            display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 20px;
+        }
+
+        .evidence-card {
+            background: rgba(30, 41, 59, 0.4); border: 1px solid #334155;
+            padding: 25px; border-radius: 12px; font-size: 13.5px;
+        }
+
+        .card-title { font-weight: 700; margin-bottom: 12px; border-bottom: 1px solid #334155; padding-bottom: 10px; font-size: 16px; }
+        .target-tag { display: inline-block; background: #1e293b; padding: 2px 8px; border-radius: 4px; font-size: 11px; margin-bottom: 8px; border: 1px solid #334155; }
+        
+        /* エラー表示用スタイル */
+        #loading-error { color: #f87171; font-weight: bold; display: none; text-align: center; padding: 20px; }
+    </style>
+</head>
+<body>
+
+<div id="main-scroll-container">
+    <div id="explanation-panel">
+        <h2 style="margin:0 0 15px 0; color:#60a5fa; font-size: 20px;">WRM v6.4.5: 構造的勾配と時空の屈折率分散</h2>
+        宇宙全体を貫く<strong>「時空の滑り台（\(\alpha=0.046\) のポテンシャル差）」</strong>を可視化。<br>
+        青い垂直軸は<strong>ダイポール軸</strong>を表します。
+    </div>
+
+    <div id="visual-area">
+        <div id="loading-error">WebGLの初期化に失敗しました。ライブラリの読み込みかブラウザの設定を確認してください。</div>
+    </div>
+
+    <div id="evidence-panel">
+        <div class="evidence-card" style="border-left: 5px solid #f87171;">
+            <span class="target-tag" style="color:#f87171;">● B1933+503</span>
+            <div class="card-title" style="color:#f87171;">位相同期基準</div>
+            30年周期のデコヒーレンス観測対象。
+        </div>
+        <div class="evidence-card" style="border-left: 5px solid #4ade80;">
+            <span class="target-tag" style="color:#4ade80;">● 3C 273</span>
+            <div class="card-title" style="color:#4ade80;">OFSスコア基点</div>
+            WRMにおける光学的距離の検証用クエーサー。
+        </div>
+        <div class="evidence-card" style="border-left: 5px solid #60a5fa;">
+            <span class="target-tag" style="color:#60a5fa;">● S5 0836+71</span>
+            <div class="card-title" style="color:#60a5fa;">タイムディレーション</div>
+            高赤方偏移における時間遅延アノマリー。
+        </div>
+    </div>
+</div>
+
+<script>
+    window.addEventListener('load', function() {
+        if (typeof THREE === 'undefined') {
+            document.getElementById('loading-error').style.display = 'block';
+            return;
+        }
+
+        let scene, camera, renderer, world, stars, starPositions;
+        const container = document.getElementById('visual-area');
+        const STAR_COUNT = 50000;
+        const FLOW_SPEED = 2.2;
+        const LIMIT_Y = 2500;
+
+        try {
+            init();
+        } catch (e) {
+            console.error(e);
+            document.getElementById('loading-error').style.display = 'block';
+        }
+
+        function init() {
+            scene = new THREE.Scene();
+            camera = new THREE.PerspectiveCamera(45, container.clientWidth / container.clientHeight, 1, 10000);
+            camera.position.set(1200, 800, 1500);
+            camera.lookAt(0, 0, 0);
+
+            renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+            renderer.setSize(container.clientWidth, container.clientHeight);
+            renderer.setPixelRatio(window.devicePixelRatio);
+            container.appendChild(renderer.domElement);
+
+            world = new THREE.Group();
+            scene.add(world);
+
+            // ダイポール軸
+            const axisMat = new THREE.MeshBasicMaterial({ color: 0x3b82f6, transparent: true, opacity: 0.6 });
+            const axis = new THREE.Mesh(new THREE.CylinderGeometry(5, 5, 5000, 12), axisMat);
+            world.add(axis);
+
+            // 星々
+            const geo = new THREE.BufferGeometry();
+            starPositions = new Float32Array(STAR_COUNT * 3);
+            for(let i=0; i<STAR_COUNT; i++) {
+                const r = Math.sqrt(Math.random()) * 1100;
+                const a = Math.random() * Math.PI * 2;
+                starPositions[i*3] = r * Math.cos(a);
+                starPositions[i*3+1] = (Math.random()-0.5) * LIMIT_Y * 2;
+                starPositions[i*3+2] = r * Math.sin(a);
+            }
+            geo.setAttribute('position', new THREE.BufferAttribute(starPositions, 3));
+            stars = new THREE.Points(geo, new THREE.PointsMaterial({ size: 1.5, color: 0xffffff, transparent: true, opacity: 0.6 }));
+            world.add(stars);
+
+            // 基準点
+            const addTarget = (color, x, y, z) => {
+                const g = new THREE.Group();
+                g.add(new THREE.Mesh(new THREE.SphereGeometry(25, 16, 16), new THREE.MeshBasicMaterial({color})));
+                g.position.set(x, y, z);
+                world.add(g);
+            };
+            addTarget(0xf87171, 400, 400, 0);
+            addTarget(0x4ade80, -500, -500, 200);
+            addTarget(0x60a5fa, -200, 800, -100);
+
+            let isDragging = false, previousMousePosition = { x: 0, y: 0 };
+            container.addEventListener('mousedown', e => { isDragging = true; });
+            window.addEventListener('mouseup', () => { isDragging = false; });
+            window.addEventListener('mousemove', e => {
+                if (!isDragging) return;
+                const deltaX = e.movementX || 0;
+                const deltaY = e.movementY || 0;
+                world.rotation.y += deltaX * 0.005;
+                world.rotation.x += deltaY * 0.005;
+            });
+
+            animate();
+        }
+
+        function animate() {
+            requestAnimationFrame(animate);
+            const positions = stars.geometry.attributes.position.array;
+            for(let i=0; i<STAR_COUNT; i++) {
+                positions[i*3+1] += FLOW_SPEED;
+                if(positions[i*3+1] > LIMIT_Y) positions[i*3+1] = -LIMIT_Y;
+            }
+            stars.geometry.attributes.position.needsUpdate = true;
+            renderer.render(scene, camera);
+        }
+
+        window.addEventListener('resize', () => {
+            camera.aspect = container.clientWidth / container.clientHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(container.clientWidth, container.clientHeight);
+        });
+    });
+</script>
+</body>
+</html>
