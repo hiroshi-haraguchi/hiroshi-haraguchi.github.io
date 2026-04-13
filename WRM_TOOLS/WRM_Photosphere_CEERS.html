@@ -1,0 +1,227 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <title>WRM: Celestial Analyzer v5.7 (Ultra-Large Float Menu)</title>
+    <style>
+        body { margin: 0; background: #000; overflow: hidden; font-family: 'Segoe UI', sans-serif; line-height: 1.6; user-select: none; }
+        
+        #ui { 
+            position: absolute; top: 20px; left: 20px; 
+            background: rgba(15, 23, 42, 0.9); color: #fff; 
+            padding: 20px; border-radius: 12px; border: 1px solid #334155; 
+            pointer-events: none; backdrop-filter: blur(8px);
+            box-shadow: 0 4px 20px rgba(0,0,0,0.5);
+            z-index: 100; max-width: 320px;
+        }
+        .title { color:#60a5fa; font-size: 1.15em; font-weight: bold; margin-bottom: 5px; }
+        .label { font-size: 0.85em; color: #94a3b8; margin-bottom: 8px; }
+        .legend-group { margin: 10px 0; border-top: 1px solid #334155; padding-top: 10px; }
+        .legend-title { font-size: 0.9em; color: #f1f5f9; font-weight: bold; margin-bottom: 5px; }
+        .legend-item { display: flex; align-items: center; margin: 4px 0; font-size: 0.88em; }
+        .ring-label { width: 12px; height: 12px; border-radius: 50%; display: inline-block; margin-right: 10px; }
+        
+        /* --- 超巨大フロートメニュー --- */
+        #hudf-float-menu {
+            position: absolute;
+            background: rgba(15, 23, 42, 0.95);
+            border: 2px solid rgba(255,255,255,0.3);
+            border-radius: 20px;
+            padding: 15px;
+            display: none;
+            z-index: 1000;
+            cursor: pointer;
+            box-shadow: 0 10px 50px rgba(0,0,0,0.8);
+            pointer-events: auto;
+            transition: opacity 0.3s;
+            /* 縦横10倍サイズ (300px -> 3000px) */
+            width: 3000px; 
+            max-width: 90vw; /* 画面からはみ出さないようブラウザ幅の90%に制限（適宜調整可） */
+        }
+        #hudf-float-menu img {
+            width: 100%; height: auto;
+            border-radius: 10px;
+            display: block;
+        }
+    </style>
+</head>
+<body>
+    <div id="ui">
+        <div class="title">WRM Celestial Analyzer v5.7</div>
+        <div class="label">ドラッグで回転 / 透明な円をクリック</div>
+
+        <div class="legend-group">
+            <div class="legend-title">インタラクティブ</div>
+            <div class="legend-item">
+                <span class="ring-label" style="background: rgba(255,255,255,0.3); border: 1px solid #fff;"></span> 
+                <span style="color:#ffffff; font-weight:bold;">HUDF 2014 (Huge View)</span>
+            </div>
+        </div>
+
+        <div class="legend-group">
+            <div class="legend-title">【極太】主軸と対蹠点</div>
+            <div class="legend-item"><span class="ring-label" style="border: 2px solid #ef4444;"></span> <span style="color:#ef4444; font-weight:bold;">Dipole (進行方向)</span></div>
+            <div class="legend-item"><span class="ring-label" style="border: 2px solid #ff00ff;"></span> <span style="color:#ff00ff; font-weight:bold;">Dipole Antipode</span></div>
+            <div class="legend-item"><span class="ring-label" style="border: 2px solid #ffff00;"></span> <span style="color:#ffff00; font-weight:bold;">CEERS Antipode</span></div>
+        </div>
+    </div>
+
+    <div id="hudf-float-menu">
+        <img src="HUDF.png" alt="HUDF 2014">
+    </div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script>
+    let scene, camera, renderer, indicators = [];
+    let raycaster = new THREE.Raycaster();
+    let mouse = new THREE.Vector2();
+    let hudfMesh, hudfPosition2D = new THREE.Vector3();
+    let isMenuVisible = false;
+
+    function getVector(ra, dec, radius) {
+        const phi = (90 - dec) * (Math.PI / 180);
+        const theta = (ra + 180) * (Math.PI / 180);
+        return new THREE.Vector3(
+            -radius * Math.sin(phi) * Math.cos(theta),
+            radius * Math.cos(phi),
+            radius * Math.sin(phi) * Math.sin(theta)
+        );
+    }
+
+    // リングではなく、透明な円（MeshBasicMaterialのCircle）を作成する関数
+    function createTransparentCircle(size, position) {
+        const geometry = new THREE.CircleGeometry(size, 32);
+        const material = new THREE.MeshBasicMaterial({ 
+            color: 0xffffff,
+            transparent: true,
+            opacity: 0.3, // 透明感のある白
+            side: THREE.DoubleSide
+        });
+        const circle = new THREE.Mesh(geometry, material);
+        circle.position.copy(position);
+        scene.add(circle);
+        indicators.push(circle);
+        hudfMesh = circle;
+        return circle;
+    }
+
+    function createRing(color, size, position, tubeThickness, opacityValue) {
+        const geometry = new THREE.TorusGeometry(size, tubeThickness, 16, 100);
+        const material = new THREE.MeshBasicMaterial({ color: color, transparent: true, opacity: opacityValue });
+        const ring = new THREE.Mesh(geometry, material);
+        ring.position.copy(position);
+        scene.add(ring);
+        indicators.push(ring);
+        return ring;
+    }
+
+    function init() {
+        scene = new THREE.Scene();
+        camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 5000);
+        camera.position.set(0, 0, 0.1);
+
+        renderer = new THREE.WebGLRenderer({ antialias: true });
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        document.body.appendChild(renderer.domElement);
+
+        const loader = new THREE.TextureLoader();
+        const texture = loader.load('https://www.eso.org/public/archives/images/large/eso0932a.jpg');
+        const bgGeo = new THREE.SphereGeometry(2000, 64, 64);
+        bgGeo.scale(-1, 1, 1);
+        const bgMat = new THREE.MeshBasicMaterial({ map: texture });
+        scene.add(new THREE.Mesh(bgGeo, bgMat));
+
+        const R = 1000;
+        const THICK = 4.0;
+
+        // 主要軸
+        const raD = 168, decD = -7;
+        const dipoleVec = getVector(raD, decD, R); 
+        createRing(0xef4444, 22, dipoleVec, THICK, 1.0);
+        createRing(0xff00ff, 25, dipoleVec.clone().multiplyScalar(-1), THICK, 1.0); 
+
+        const raC = 214.8, decC = 52.8;
+        const ceersAntipodeVec = getVector(raC, decC, R).multiplyScalar(-1);
+        createRing(0xffff00, 30, ceersAntipodeVec, THICK, 1.0); 
+
+        // --- HUDF 2014 (透明感のある白い円に変更) ---
+        const hudfVec = getVector(53.1, -27.8, R * 0.98);
+        createTransparentCircle(20, hudfVec);
+
+        const floatMenu = document.getElementById('hudf-float-menu');
+        
+        window.addEventListener('click', (event) => {
+            if (isMenuVisible) {
+                floatMenu.style.display = 'none';
+                isMenuVisible = false;
+                return;
+            }
+            if (event.target.closest('#ui')) return;
+
+            mouse.x = (event.clientX / window.innerWidth) * 2 - 1;
+            mouse.y = -(event.clientY / window.innerHeight) * 2 + 1;
+            raycaster.setFromCamera(mouse, camera);
+            const intersects = raycaster.intersectObject(hudfMesh);
+
+            if (intersects.length > 0) {
+                isMenuVisible = true;
+                floatMenu.style.display = 'block';
+            }
+        });
+
+        // 操作系
+        let lon = 0, lat = 0;
+        let onPointerDownPointerX, onPointerDownPointerY, onPointerDownLon, onPointerDownLat;
+
+        document.addEventListener('pointerdown', (e) => {
+            onPointerDownPointerX = e.clientX;
+            onPointerDownPointerY = e.clientY;
+            onPointerDownLon = lon;
+            onPointerDownLat = lat;
+            document.addEventListener('pointermove', onPointerMove);
+            document.addEventListener('pointerup', onPointerUp);
+        });
+
+        function onPointerMove(e) {
+            lon = (onPointerDownPointerX - e.clientX) * 0.15 + onPointerDownLon;
+            lat = (e.clientY - onPointerDownPointerY) * 0.15 + onPointerDownLat;
+        }
+
+        function onPointerUp() {
+            document.removeEventListener('pointermove', onPointerMove);
+            document.removeEventListener('pointerup', onPointerUp);
+        }
+
+        document.addEventListener('wheel', (e) => {
+            camera.fov = Math.max(20, Math.min(100, camera.fov + e.deltaY * 0.05));
+            camera.updateProjectionMatrix();
+        });
+
+        function animate() {
+            requestAnimationFrame(animate);
+            lat = Math.max(-85, Math.min(85, lat));
+            const phi = THREE.MathUtils.degToRad(90 - lat);
+            const theta = THREE.MathUtils.degToRad(lon);
+            const target = new THREE.Vector3(Math.sin(phi)*Math.cos(theta), Math.cos(phi), Math.sin(phi)*Math.sin(theta));
+            camera.lookAt(target);
+            
+            indicators.forEach(ind => ind.lookAt(camera.position));
+            
+            if (isMenuVisible) {
+                hudfPosition2D.copy(hudfMesh.position);
+                hudfPosition2D.project(camera);
+                const x = (hudfPosition2D.x * 0.5 + 0.5) * window.innerWidth;
+                const y = (-hudfPosition2D.y * 0.5 + 0.5) * window.innerHeight;
+
+                floatMenu.style.left = (x - floatMenu.offsetWidth / 2) + 'px';
+                floatMenu.style.top = (y - floatMenu.offsetHeight - 20) + 'px';
+            }
+            
+            renderer.render(scene, camera);
+        }
+        animate();
+    }
+    window.onload = init;
+</script>
+</body>
+</html>
