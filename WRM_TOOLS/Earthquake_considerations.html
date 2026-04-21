@@ -117,7 +117,7 @@
     <div id="ui">
         <div id="ui-header">GLOBAL PATCHWORK MONITOR</div>
         <div id="ui-scroll-content">
-            <div style="font-weight:bold; font-size:14px; margin-bottom:5px;">全球パッチワーク：臨界監視域 復元版</div>
+            <div style="font-weight:bold; font-size:14px; margin-bottom:5px;">全球パッチワーク：地震臨界監視</div>
             <div id="status">READY</div>
             <div class="progress-box"><div id="bar"></div></div>
             <div class="proxy-box">
@@ -144,7 +144,7 @@
             <div class="legend">
                 <label><input type="checkbox" id="check-flare-filter" onchange="fetchIonosphereBySelection()"> <span class="dot-icon" style="background:#ffff00; border:1px solid #fff;"></span> SOLAR FLARE REMOVAL (ON/OFF)</label>
                 <hr>
-                <label><input type="checkbox" id="check-fault" checked onchange="updateVisibility()"> <span style="border-bottom: 1px solid #666; width:12px; display:inline-block; margin-right:10px;"></span> 断層網 / プレート境界</label>
+                <label><input type="checkbox" id="check-fault" checked onchange="updateVisibility()"> <span style="border-bottom: 1px solid #ff0000; width:12px; display:inline-block; margin-right:10px;"></span> 断層網 / プレート境界</label>
                 <label><input type="checkbox" id="check-critical" checked onchange="updateVisibility()"> <span class="dot-icon" style="background:#ff00ff; box-shadow:0 0 5px #ff00ff;"></span> 臨界監視域 (マゼンタ)</label>
                 <label><input type="checkbox" id="check-volcano" checked onchange="updateVisibility()"> <span class="tri-icon"></span> 主要火山</label>
                 <label><input type="checkbox" id="check-ionosphere" checked onchange="updateVisibility()"> <span class="dot-icon" style="background:#ffff00; box-shadow:0 0 5px #ffff00;"></span> 電離層異常 (LT動的除外)</label>
@@ -187,6 +187,27 @@
         </div>
     </div>
 </div>
+
+<div id="ionex-monitor" style="position: fixed; right: 20px; top: 400px; width: 300px; z-index: 1000;">
+    <div id="ionex-header" style="background: #1a1a1a; color: #00d4ff; padding: 5px 10px; font-weight: bold; border-bottom: 1px solid #444;">
+        IONosphere Map Exchange (VTEC)
+    </div>
+    <div style="padding: 10px; background: rgba(0, 0, 0, 0.7); border: 1px solid #444; border-top: none;">
+        <div class="video-container">
+            <img src="https://chapman.upc.es/tomion/rapid/uqrg.latest.rms.gif" width="100%" style="display: block; border-radius: 2px;">
+        </div>
+        <div class="link-grid" style="display: grid; grid-template-columns: 1fr 1fr; gap: 5px; margin-top: 10px;">
+            <a href="https://chapman.upc.es/tomion/rapid/" target="_blank" style="color: #00d4ff; font-size: 11px; text-decoration: none;">UPC Chapman</a>
+            <a href="https://cddis.nasa.gov/archive/gnss/products/ionex/" target="_blank" style="color: #00d4ff; font-size: 11px; text-decoration: none;">NASA CDDIS</a>
+        </div>
+        <div class="monitor-footer" style="font-size: 10px; color: #888; margin-top: 5px; text-align: center;">
+            UQRG - Global VTEC Map (15-min res)
+        </div>
+    </div>
+</div>
+
+
+
 
 
     </div>
@@ -245,6 +266,12 @@
             dz.addEventListener('drop', (e) => { e.preventDefault(); dz.classList.remove('hover'); handleFileDrop(e); }, false);
             
             window.addEventListener('click', onDocumentMouseDown, false);
+            
+            // トルコ周辺の構造を強調表示
+    addNorthAnatolianFault();   // 北アナトリア断層
+    addPlateMotionArrows();     // プレート移動の矢印
+    addMajorPlateBoundaries();  // 主要なプレート境界（←今回追加）
+    addGlobalPlateHighlights()
             animate();
         }
 
@@ -333,7 +360,7 @@
             data.features.forEach(f => {
                 if (f.geometry.type === "LineString") {
                     const pts = f.geometry.coordinates.map(c => { faultPoints.push({lat: c[1], lon: c[0]}); return toVec(c[1], c[0], R + 0.02); });
-                    faultGroup.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints(pts), new THREE.LineBasicMaterial({color: 0x00ffff, opacity: 0.4, transparent: true})));
+                    faultGroup.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints(pts), new THREE.LineBasicMaterial({color: 0xff0000, opacity: 1.0, transparent: true})));
                 }
             });
             document.getElementById('status').innerText = "PLATES LOADED";
@@ -670,6 +697,179 @@ function updatePredictionAnims() {
     });
 }
 
+// 北アナトリア断層 (NAF) の詳細ラインを追加する関数
+function addNorthAnatolianFault() {
+    // 北アナトリア断層のおおよその座標データ (経度, 緯度)
+    const nafCoords = [
+        [26.0, 40.5], [30.0, 40.8], [35.0, 41.0], [40.0, 39.8], [43.0, 39.2]
+    ];
+    
+    const pts = nafCoords.map(c => toVec(c[1], c[0], R + 0.04));
+    const geometry = new THREE.BufferGeometry().setFromPoints(pts);
+    // 強調のために太めの赤い実線に設定
+    const material = new THREE.LineBasicMaterial({ 
+        color: 0xff0000, 
+        linewidth: 3,
+        transparent: true,
+        opacity: 0.9 
+    });
+    
+    const line = new THREE.Line(geometry, material);
+    faultGroup.add(line);
+}
+// プレートの移動方向を示す矢印を追加する関数
+function addPlateMotionArrows() {
+    const motions = [
+        { lat: 25.0, lon: 20.0, dir: new THREE.Vector3(0.5, 0.5, 0), label: "AFRICA" }, // アフリカプレート
+        { lat: 20.0, lon: 45.0, dir: new THREE.Vector3(-0.2, 0.8, 0), label: "ARABIA" }  // アラビアプレート
+    ];
+
+    motions.forEach(m => {
+        const origin = toVec(m.lat, m.lon, R + 0.1);
+        const dir = origin.clone().normalize(); // 垂直方向
+        
+        // 簡易的な矢印ヘルパーの追加
+        const arrowHelper = new THREE.ArrowHelper(
+            new THREE.Vector3(0, 1, 0).applyQuaternion(new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0,0,1), dir)), 
+            origin, 
+            0.5, 
+            0xffaa00
+        );
+        earthGroup.add(arrowHelper);
+    });
+}
+// 主要なプレート境界（トルコ周辺）を強調描画する関数
+function addMajorPlateBoundaries() {
+    // ユーラシア、アフリカ、アラビアプレートが接するエリアの座標
+    const plateLines = [
+        // アフリカプレート北端境界（地中海沿い）
+        { coords: [[10.0, 35.0], [20.0, 34.0], [30.0, 33.0], [35.0, 35.0]], color: 0xff0000 },
+        // アラビアプレート北端・東端境界
+        { coords: [[35.0, 35.0], [40.0, 38.0], [45.0, 37.0], [50.0, 30.0]], color: 0xff0000 },
+        // 紅海・死海トランスフォーム（アラビアとアフリカの境界）
+        { coords: [[35.0, 30.0], [36.5, 33.0], [35.5, 35.5]], color: 0xff0000 }
+    ];
+
+    plateLines.forEach(lineData => {
+        const pts = lineData.coords.map(c => toVec(c[1], c[0], R + 0.04));
+        const geometry = new THREE.BufferGeometry().setFromPoints(pts);
+        // 赤い実線で描画
+        const material = new THREE.LineBasicMaterial({ 
+            color: lineData.color, 
+            transparent: true, 
+            opacity: 0.8,
+            linewidth: 2
+        });
+        const line = new THREE.Line(geometry, material);
+        faultGroup.add(line);
+    });
+}
+// アジア（日本・フィリピン）および北米の主要プレート境界を描画
+function addGlobalPlateHighlights() {
+    const globalLines = [
+        // --- アジア方面 ---
+        // 日本海溝・伊豆小笠原海溝 (太平洋プレート境界)
+        { coords: [[144.0, 43.0], [143.0, 35.0], [141.0, 25.0]], color: 0xff0000 },
+        // 相模・南海トラフ
+        { coords: [[140.0, 35.0], [138.0, 34.0], [135.0, 33.0], [131.0, 31.0]], color: 0xff0000 },
+        // フィリピン海プレート境界
+        { coords: [[125.0, 10.0], [122.0, 20.0], [125.0, 25.0], [130.0, 30.0]], color: 0xff0000 },
+
+        // --- アメリカ方面 ---
+        // カスケード沈み込み帯 (北米西岸)
+        { coords: [[-125.0, 40.0], [-126.0, 45.0], [-128.0, 50.0]], color: 0xff0000 },
+        // サンアンドレアス断層
+        { coords: [[-115.0, 33.0], [-118.0, 35.0], [-122.0, 38.0], [-124.0, 40.0]], color: 0xff0000 },
+        // 南米・ペルー・チリ海溝
+        { coords: [[-72.0, -10.0], [-75.0, -20.0], [-72.0, -35.0]], color: 0xff0000 },
+        // --- 北側：衝突境界（ヒマラヤ山脈・チベット付近） ---
+        { coords: [[65.0, 33.0], [75.0, 35.0], [85.0, 30.0], [95.0, 28.0], [100.0, 25.0]], color: 0xff0000 },
+        
+        // --- 西側：トランスフォーム断層・海嶺（パキスタン沖〜中央インド洋） ---
+        { coords: [[65.0, 33.0], [67.0, 25.0], [60.0, 15.0], [60.0, 0.0], [65.0, -10.0]], color: 0xff0000 },
+        
+        // --- 東側：沈み込み帯（アンダマン海〜スマトラ島沖） ---
+        { coords: [[95.0, 25.0], [93.0, 15.0], [95.0, 5.0], [100.0, -5.0]], color: 0xff0000 },
+        
+        // --- 南側：海嶺（オーストラリアプレートとの境界方向） ---
+        { coords: [[65.0, -10.0], [80.0, -10.0], [95.0, -10.0]], color: 0xff0000 },
+        // モンゴル南西部を東西に走る主要な活動断層
+        { coords: [[95.0, 45.0], [100.0, 45.5], [105.0, 44.5]], color: 0xff0000 },
+        
+        // --- ハンガイ断層 (Hangay Faults) ---
+        // ゴビ砂漠のさらに北側、モンゴル中央部の構造線
+        { coords: [[90.0, 48.0], [98.0, 48.5], [105.0, 48.0]], color: 0xff0000 },
+
+        // --- バイカル・リフトゾーン (Baikal Rift Zone) ---
+        // ゴビ砂漠の北、バイカル湖周辺の拡大境界に近い構造
+        { coords: [[103.0, 51.0], [108.0, 53.0], [115.0, 56.0]], color: 0xff0000 },
+        // 中央インド洋海嶺 (インド〜ロドリゲス三重会合点)
+        { coords: [[65.0, 15.0], [68.0, 5.0], [70.0, -10.0], [70.0, -25.0]], color: 0xff0000 },
+        
+        // 南東インド洋海嶺 (オーストラリア方面へ)
+        { coords: [[70.0, -25.0], [85.0, -35.0], [100.0, -45.0], [120.0, -50.0]], color: 0xff0000 },
+        
+        // 南西インド洋海嶺 (アフリカ・マダガスカル南方へ)
+        { coords: [[70.0, -25.0], [60.0, -30.0], [45.0, -40.0], [30.0, -50.0]], color: 0xff0000 },
+        // --- 東太平洋海嶺 (広がる境界) ---
+        { coords: [[-115.0, -10.0], [-110.0, -20.0], [-112.0, -40.0], [-115.0, -55.0]], color: 0xff0000 },
+        
+        // --- ペルー・チリ海溝 (沈み込み帯) ---
+        { coords: [[-75.0, 5.0], [-80.0, -5.0], [-78.0, -15.0], [-72.0, -35.0], [-75.0, -45.0]], color: 0xff0000 },
+        
+        // --- ココス・ナスカ境界 (ガラパゴス付近) ---
+        { coords: [[-105.0, 2.0], [-90.0, 1.0], [-83.0, 1.0]], color: 0xff0000 },
+        // --- 南極を取り巻く海嶺 (Antarctic Ridges) ---
+        { coords: [[20.0, -55.0], [60.0, -50.0], [100.0, -55.0], [140.0, -60.0], [180.0, -62.0]], color: 0xff0000 },
+        { coords: [[-160.0, -60.0], [-120.0, -55.0], [-80.0, -60.0], [-40.0, -55.0]], color: 0xff0000 },
+        
+        // --- パタゴニア沖からハワイ東方へ伸びる東太平洋海嶺 ---
+        { coords: [[-75.0, -45.0], [-90.0, -45.0], [-110.0, -40.0], [-115.0, -20.0], [-110.0, 0.0], [-120.0, 20.0]], color: 0xff0000 },
+        // --- 北大西洋セグメント ---
+        { coords: [[-30.0, 60.0], [-25.0, 50.0], [-45.0, 40.0], [-30.0, 20.0], [-45.0, 10.0]], color: 0xff0000 },
+        
+        // --- 南大西洋セグメント (S字の屈曲部) ---
+        { coords: [[-45.0, 10.0], [-15.0, 0.0], [-10.0, -20.0], [-15.0, -40.0], [-25.0, -55.0]], color: 0xff0000 },
+        // --- 東太平洋海嶺 (南側セグメント) ---
+        // ハワイ南東沖からイースター島付近を経て、南緯55度付近まで
+        { coords: [[-110.0, -10.0], [-113.0, -20.0], [-114.0, -30.0], [-112.0, -45.0]], color: 0xff0000 },
+        
+        // --- 太平洋南極海嶺 (Pacific-Antarctic Ridge) ---
+        // 東太平洋海嶺から南極大陸の南側、ニュージーランド南方へ続くライン
+        { coords: [[-112.0, -45.0], [-125.0, -55.0], [-145.0, -62.0], [-170.0, -65.0], [170.0, -63.0]], color: 0xff0000 },
+        
+        // --- チリ海嶺 (Chile Rise) ---
+        // 東太平洋海嶺からパタゴニア（南米南端）へ向かう分岐
+        { coords: [[-112.0, -45.0], [-100.0, -43.0], [-85.0, -45.0], [-75.0, -46.0]], color: 0xff0000 },
+
+        // --- ナスカ・南極プレート境界 ---
+        { coords: [[-112.0, -45.0], [-90.0, -58.0], [-70.0, -62.0]], color: 0xff0000 },
+        // --- 北大西洋：アイスランドからアゾレス諸島へ ---
+        { coords: [[-27.0, 70.0], [-25.0, 65.0], [-30.0, 60.0], [-35.0, 50.0], [-30.0, 45.0]], color: 0xff0000 },
+        
+        // --- 中央大西洋：アゾレス付近の屈曲と赤道への伸び ---
+        { coords: [[-30.0, 45.0], [-45.0, 35.0], [-40.0, 25.0], [-45.0, 15.0], [-30.0, 5.0]], color: 0xff0000 },
+        
+        // --- 赤道付近の巨大な横ずれ（ロマンシュ断層付近） ---
+        { coords: [[-30.0, 5.0], [-10.0, 0.0], [-20.0, -5.0]], color: 0xff0000 },
+        
+        // --- 南大西洋：ブラジル沖から南極方面へ流れるS字曲線 ---
+        { coords: [[-20.0, -5.0], [-10.0, -15.0], [-15.0, -30.0], [-10.0, -45.0], [-20.0, -55.0]], color: 0xff0000 }
+    ];
+
+    globalLines.forEach(lineData => {
+        const pts = lineData.coords.map(c => toVec(c[1], c[0], R + 0.04));
+        const geometry = new THREE.BufferGeometry().setFromPoints(pts);
+        const material = new THREE.LineBasicMaterial({ 
+            color: lineData.color, 
+            transparent: true, 
+            opacity: 0.8,
+            linewidth: 2 
+        });
+        const line = new THREE.Line(geometry, material);
+        faultGroup.add(line);
+    });
+}
 
 
     </script>
