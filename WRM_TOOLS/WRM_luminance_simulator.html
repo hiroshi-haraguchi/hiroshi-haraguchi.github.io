@@ -1,0 +1,157 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <title>WRM - Dynamic Geodesic Analysis V10.0</title>
+    <script src="https://polyfill.io/v3/polyfill.min.js?features=es6"></script>
+    <script id="MathJax-script" async src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js"></script>
+    <style>
+        body { font-family: 'Consolas', 'Courier New', monospace; background-color: #0d1117; color: #c9d1d9; padding: 20px; line-height: 1.5; }
+        .monitor-frame { max-width: 1000px; margin: auto; border: 2px solid #30363d; background: #161b22; padding: 30px; border-radius: 12px; }
+        h1 { color: #f0883e; text-align: center; border-bottom: 2px solid #f0883e; padding-bottom: 15px; font-family: sans-serif; }
+        .formula-view { background: #010409; padding: 25px; border-radius: 8px; border-left: 6px solid #da3633; margin: 20px 0; color: #c9d1d9; }
+        .input-panel { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 15px; margin-bottom: 25px; }
+        .input-unit { background: #21262d; padding: 10px; border-radius: 6px; }
+        label { font-size: 0.8em; color: #8b949e; display: block; margin-bottom: 5px; }
+        input, select { width: 100%; background: #0d1117; border: 1px solid #30363d; color: #fff; padding: 8px; border-radius: 4px; box-sizing: border-box; }
+        button { width: 100%; padding: 20px; background: #238636; border: none; color: white; font-weight: bold; cursor: pointer; border-radius: 6px; font-size: 1.2em; margin-bottom: 20px; }
+        .log-area { background: #000; border: 1px solid #30363d; padding: 25px; font-size: 0.95em; display: none; color: #d1d5da; border-radius: 8px; }
+        .step-label { color: #f0883e; font-weight: bold; }
+        .val-highlight { color: #aff5b4; font-weight: bold; }
+        .result-display { display: grid; grid-template-columns: repeat(3, 1fr); gap: 20px; margin-top: 25px; display: none; }
+        .card { background: #21262d; padding: 20px; border-radius: 8px; text-align: center; border: 1px solid #30363d; }
+        .res-num { font-size: 2.0em; font-weight: bold; color: #f2cc60; display: block; margin-top: 10px; }
+    </style>
+</head>
+<body>
+
+<div class="monitor-frame">
+    <h1>WRM 輝度算出モニター V1.0（対標準理論）</h1>
+
+    <div class="formula-view">
+        <strong>【動的パラメータ連動モデル】</strong>
+        \[ I_{obs} / I_{std} = 1 + \left( \frac{\alpha_{eff} \cdot e^{-\sigma \cdot \Delta\theta^2}}{\gamma_\lambda \cdot 10^7} \right) \cdot R_f(\theta_{res}) \]
+        <p style="font-size: 0.85em; color: #8b949e; margin-top:10px;">
+            ※不動軸 \(\theta_{res}\) の上昇に伴い、時空ポテンシャル \(R_f\) は指数関数的に増大します。
+        </p>
+        <strong>【測地学的導出モデル：\(R_f\) 動的算出】</strong>
+        \[ R_f = 2 \cdot \left( \frac{R_{total}}{L_{ref}} \right) \cdot \cot(\theta_{res}) \]
+        <p style="font-size: 0.85em; color: #8b949e; margin-top:10px;">
+            ※基準長 \(L_{ref}\) は銀河公転周期に依存し、\(R_f\) は観測銀河の運動幾何学から必然的に導出されます。
+        </p>
+    </div>
+
+    <div class="input-panel">
+        <div class="input-unit">
+            <label>天体距離 D (Gly)</label>
+            <input type="number" id="dist" value="2.0" step="0.1">
+        </div>
+        <div class="input-unit">
+            <label>銀河公転周期 \(T_{gal}\) (Myr)</label>
+            <input type="number" id="t_gal" value="250" step="1">
+        </div>
+        <div class="input-unit">
+            <label>不動軸 \(\theta_{res}\) (deg)</label>
+            <input type="number" id="theta_res" value="15.0" step="0.1">
+        </div>
+        <div class="input-unit">
+            <label>波種 (\(\gamma_\lambda\))</label>
+            <input type="text" id="gamma_val" value="1e-8">
+        </div>
+        <div class="input-unit">
+            <label>収束指数 (\(\sigma\))</label>
+            <input type="number" id="sigma_val" value="2.8" step="0.1">
+        </div>
+    </div>
+
+    <button onclick="runDynamicVerification()">測地学的演算を実行</button>
+
+    <div id="logArea" class="log-area"></div>
+
+    <div id="resPanel" class="result-display">
+        <div class="card">
+            <label>演算結果 \(R_f\)</label>
+            <span id="vRf" class="res-num">--</span>
+        </div>
+        <div class="card">
+            <label id="labelMax">理論上限 (\(\theta = \theta_{res}\))</label>
+            <span id="vMax" class="res-num">--</span>
+        </div>
+        <div class="card">
+            <label id="labelEff">実効参考値 (\(\Delta\theta = 1.0^\circ\))</label>
+            <span id="vEff" class="res-num">--</span>
+        </div>
+    </div>
+</div>
+
+<script>
+function runDynamicVerification() {
+    const log = document.getElementById('logArea');
+    const res = document.getElementById('resPanel');
+    log.style.display = 'block';
+    res.style.display = 'grid';
+
+    // 定数定義
+    const alpha0 = 0.046;
+    const R_total = 13.8; // Gly (138億光年)
+    
+    // 入力値の取得
+    const D = parseFloat(document.getElementById('dist').value);
+    const T_gal_myr = parseFloat(document.getElementById('t_gal').value);
+    const thetaRes = parseFloat(document.getElementById('theta_res').value);
+    const gamma = parseFloat(document.getElementById('gamma_val').value);
+    const sigma = parseFloat(document.getElementById('sigma_val').value);
+    
+    // Step 0: 測地学的 R_f の動的算出
+    // L_ref = c * T_gal (MyrをGlyに換算: 1000Myr = 1Gly)
+    const L_ref = T_gal_myr / 1000; 
+    const Gamma = R_total / L_ref;
+    const thetaRad = thetaRes * (Math.PI / 180);
+    // Rf = 2 * Gamma * cot(theta)
+    const calculatedRf = 2 * Gamma * (1 / Math.tan(thetaRad));
+
+    // Step 1: 実効屈折率
+    const beta = thetaRes / 100;
+    const alphaEff = alpha0 * Math.exp(-beta * (D / 13.8));
+    
+    log.innerHTML = "<h3>[Step-by-Step Geodesic Log]</h3>";
+    log.innerHTML += `<div style='margin-bottom:15px;'><span class='step-label'>[Step 0] 測地学的 R_f 導出</span><br>
+    - 基準長 L_ref (Gly): ${L_ref.toFixed(4)}<br>
+    - 宇宙共振比 Γ: ${Gamma.toFixed(2)}<br>
+    - 演算結果 R_f: <span class='val-highlight'>${calculatedRf.toFixed(2)}</span></div>`;
+
+    log.innerHTML += `<div style='margin-bottom:15px;'><span class='step-label'>[Step 1] α_eff 算出</span><br>
+    - 不動軸依存係数 β: ${beta.toFixed(3)}<br>
+    - α_eff: <span class='val-highlight'>${alphaEff.toFixed(6)}</span></div>`;
+
+    const calculateGain = (targetDeg, label) => {
+        const diff = Math.abs(targetDeg - thetaRes);
+        const decay = Math.exp(-sigma * Math.pow(diff, 2));
+        const baseTerm = alphaEff / (gamma * 1e7);
+        const gain = 1 + (baseTerm * calculatedRf * decay);
+        
+        log.innerHTML += `<div style='margin-bottom:20px; border-left: 2px solid #30363d; padding-left:15px;'>
+            <span class='step-label'>[${label}: θ = ${targetDeg.toFixed(1)}°]</span><br>
+            - 角度偏差 Δθ: ${diff.toFixed(2)}°<br>
+            - 幾何収束率 (exp): ${decay.toFixed(8)}<br>
+            - 増幅ポテンシャル (Rf): ${calculatedRf.toFixed(2)}<br>
+            - 最終 Gain: <span class='val-highlight'>x ${gain.toFixed(4)}</span>
+        </div>`;
+        return gain;
+    };
+
+    const gMax = calculateGain(thetaRes, "理論上限");
+    const gEff = calculateGain(thetaRes - 1.0, "実効値");
+
+    document.getElementById('vRf').innerText = calculatedRf.toFixed(2);
+    document.getElementById('labelMax').innerText = `理論上限 (θ = ${thetaRes.toFixed(1)}°)`;
+    document.getElementById('labelEff').innerText = `実効参考値 (θ = ${(thetaRes - 1.0).toFixed(1)}°)`;
+    document.getElementById('vMax').innerText = "x " + gMax.toFixed(3);
+    document.getElementById('vEff').innerText = "x " + gEff.toFixed(3);
+
+    MathJax.typeset();
+}
+</script>
+
+</body>
+</html>
