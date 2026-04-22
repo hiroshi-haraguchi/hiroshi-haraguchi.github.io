@@ -1,0 +1,958 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <title>Global Patchwork: Critical Zone Restored</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+    <style>
+        body { margin: 0; background: #000; overflow: hidden; font-family: sans-serif; color: #fff; }
+        #ui { 
+            position: fixed; top: 15px; left: 15px; width: 360px; 
+            background: rgba(0, 15, 30, 0.95); z-index: 1000; 
+            border: 1px solid rgba(255,255,255,0.2); border-left: 5px solid #ff00ff;
+            border-radius: 8px; display: flex; flex-direction: column;
+            max-height: 90vh; box-shadow: 0 10px 30px rgba(0,0,0,0.5);
+        }
+        #ui-header {
+            padding: 12px; cursor: move; background: linear-gradient(90deg, #001a33, #004466);
+            border-bottom: 1px solid rgba(255,255,255,0.1); font-weight: bold; font-size: 13px;
+            border-radius: 8px 8px 0 0; user-select: none;
+        }
+        #ui-scroll-content { padding: 15px; overflow-y: auto; overflow-x: hidden; flex: 1; pointer-events: auto; }
+        .progress-box { width: 100%; background: #111; height: 6px; margin: 8px 0; border-radius: 3px; overflow: hidden; }
+        #bar { width: 0%; height: 100%; background: #ff00ff; transition: width 0.3s; }
+        .ctrl-btn { cursor: pointer; color: white; border: none; padding: 8px; font-weight: bold; 
+                    width: 100%; border-radius: 4px; pointer-events: auto; margin-bottom: 6px; font-size: 11px; }
+        #sync-btn { background: #ff00ff; }
+        #geo-btn { background: #444; }
+        #retry-iono-btn { background: #0066ff; margin-top: 8px; border: 1px solid #00aaff; }
+        #status { font-family: monospace; color: #00ff00; font-size: 10px; margin-bottom: 5px; min-height: 12px; }
+        .proxy-box { background: rgba(255,255,255,0.05); padding: 10px; border-radius: 4px; margin-bottom: 10px; pointer-events: auto; border: 1px solid #333; }
+        .proxy-title { font-size: 10px; font-weight: bold; color: #00ffff; margin-bottom: 5px; }
+        .proxy-option { display: flex; align-items: center; font-size: 10px; margin-bottom: 3px; }
+        .proxy-input { width: 100%; background: #222; border: 1px solid #444; color: #eee; font-size: 9px; padding: 3px; margin-top: 2px; border-radius: 2px; box-sizing: border-box; }
+        .proxy-flex-container { display: flex; gap: 10px; align-items: flex-start; }
+        .proxy-controls { flex: 1; }
+        .drop-zone { 
+            width: 80px; height: 80px; border: 2px dashed #444; border-radius: 4px; 
+            display: flex; align-items: center; justify-content: center; text-align: center;
+            font-size: 9px; color: #888; background: rgba(255,255,255,0.02);
+            transition: all 0.3s; flex-shrink: 0; pointer-events: auto;
+        }
+        .drop-zone.hover { border-color: #ff00ff; color: #ff00ff; background: rgba(255,0,255,0.05); }
+        .mirror-select { width: 100%; background: #111; border: 1px solid #00ffff; color: #00ffff; font-size: 11px; padding: 5px; margin-top: 5px; border-radius: 3px; cursor: pointer; }
+        .legend { font-size: 11px; line-height: 1.8; color: #ccc; pointer-events: auto; }
+        .legend label { display: block; margin-bottom: 2px; }
+        .dot-icon { display: inline-block; width: 6px; height: 6px; border-radius: 50%; margin: 0 10px; vertical-align: middle; }
+        .tri-icon { display: inline-block; width: 0; height: 0; border-left: 4px solid transparent; border-right: 4px solid transparent; border-bottom: 7px solid #ff3300; margin: 0 10px; vertical-align: middle; }
+        input[type="checkbox"], input[type="radio"] { margin-right: 5px; cursor: pointer; vertical-align: middle; }
+        hr { border: 0; border-top: 1px solid #333; margin: 8px 0; }
+
+#solar-monitor {
+    position: fixed;
+    top: 15px;
+    right: 15px; /* 右上に配置 */
+    width: 280px;
+    background: rgba(0, 10, 20, 0.9);
+    z-index: 1001; /* 既存のUIより手前に */
+    border: 1px solid rgba(255, 174, 0, 0.4);
+    border-top: 4px solid #ffae00;
+    border-radius: 6px;
+    box-shadow: -5px 5px 20px rgba(0,0,0,0.8);
+    font-family: sans-serif;
+}
+
+#solar-header {
+    padding: 8px 12px;
+    background: rgba(255, 174, 0, 0.1);
+    font-size: 0.75em;
+    font-weight: bold;
+    color: #ffae00;
+    letter-spacing: 1.5px;
+    border-bottom: 1px solid rgba(255, 174, 0, 0.2);
+}
+
+.video-container {
+    width: 100%;
+    aspect-ratio: 1 / 1;
+    border-radius: 4px;
+    overflow: hidden;
+    background: #000;
+}
+
+.link-grid {
+    margin-top: 10px;
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
+}
+
+.link-grid a {
+    color: #fff;
+    text-decoration: none;
+    font-size: 0.7em;
+    background: rgba(255, 255, 255, 0.05);
+    padding: 6px;
+    border-radius: 3px;
+    text-align: center;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    transition: 0.3s;
+}
+
+.link-grid a:hover {
+    background: rgba(255, 174, 0, 0.2);
+    border-color: #ffae00;
+}
+
+.monitor-footer {
+    font-size: 0.6em;
+    color: #888;
+    margin-top: 8px;
+    text-align: center;
+}
+    </style>
+</head>
+<body>
+    <div id="ui">
+        <div id="ui-header">GLOBAL PATCHWORK MONITOR</div>
+        <div id="ui-scroll-content">
+            <div style="font-weight:bold; font-size:14px; margin-bottom:5px;">全球パッチワーク：地震臨界監視</div>
+            <div id="status">READY</div>
+            <div class="progress-box"><div id="bar"></div></div>
+            <div class="proxy-box">
+                <div class="proxy-title">1. DATA SOURCE (MIRROR)</div>
+                <select id="mirror-select" class="mirror-select">
+                    <option value="https://sideshow.jpl.nasa.gov/pub/iono/daily/latest_gim.json">NASA-JPL (USA)</option>
+                    <option value="https://cddis.nasa.gov/archive/gnss/products/ionex/latest_gim.json">NASA-CDDIS (USA Archive)</option>
+                </select>
+                <div class="proxy-title" style="margin-top:10px;">2. NETWORK PROXY SETTINGS</div>
+                <div class="proxy-flex-container">
+                    <div class="proxy-controls">
+                        <div class="proxy-option"><input type="radio" name="proxy-sel" value="main" checked onchange="updateProxyUI()"> メイン: AllOrigins</div>
+                        <div class="proxy-option"><input type="radio" name="proxy-sel" value="alt1" onchange="updateProxyUI()"> 代替1: CORS Anywhere</div>
+                        <div class="proxy-option"><input type="radio" name="proxy-sel" value="alt2" onchange="updateProxyUI()"> 代替2: ThingProxy</div>
+                        <div class="proxy-option"><input type="radio" name="proxy-sel" value="custom" onchange="updateProxyUI()"> カスタム入力</div>
+                    </div>
+                    <div id="drop-zone" class="drop-zone">IONEX<br>FILE<br>DROP</div>
+                </div>
+                <input type="text" id="proxy-url" class="proxy-input" value="https://api.allorigins.win/raw?url=">
+                <button id="retry-iono-btn" class="ctrl-btn" onclick="fetchIonosphereBySelection()">RETRY FETCH (IONO)</button>
+            </div>
+            <button id="geo-btn" class="ctrl-btn" onclick="fetchGlobalFaults()">1. FETCH GEOJSON (PLATES)</button>
+            <button id="sync-btn" class="ctrl-btn" onclick="toggleSync()">2. DATA SYNCHRONIZE & NUMBERING</button>
+            <div class="legend">
+                <label><input type="checkbox" id="check-flare-filter" onchange="fetchIonosphereBySelection()"> <span class="dot-icon" style="background:#ffff00; border:1px solid #fff;"></span> SOLAR FLARE REMOVAL (ON/OFF)</label>
+                <hr>
+                <label><input type="checkbox" id="check-fault" checked onchange="updateVisibility()"> <span style="border-bottom: 1px solid #ff0000; width:12px; display:inline-block; margin-right:10px;"></span> 断層網 / プレート境界</label>
+                <label><input type="checkbox" id="check-critical" checked onchange="updateVisibility()"> <span class="dot-icon" style="background:#ff00ff; box-shadow:0 0 5px #ff00ff;"></span> 臨界監視域 (マゼンタ)</label>
+                <label><input type="checkbox" id="check-volcano" checked onchange="updateVisibility()"> <span class="tri-icon"></span> 主要火山</label>
+                <label><input type="checkbox" id="check-ionosphere" checked onchange="updateVisibility()"> <span class="dot-icon" style="background:#ffff00; box-shadow:0 0 5px #ffff00;"></span> 電離層異常 (LT動的除外)</label>
+                <hr>
+
+
+
+
+                <div class="filter-row">
+                    <span>直近 <input type="number" id="filter-months" class="filter-input" value="1200"> ヶ月以降</span>
+                    <button class="filter-btn" onclick="applyTimeFilter()">APPLY</button>
+                </div>
+
+
+                <label><input type="checkbox" id="check-m5" checked onchange="updateVisibility()"> <span class="dot-icon" style="background:#00aaff;"></span> 中規模活動 (青/M5.5-5.9)</label>
+                <label><input type="checkbox" id="check-patch" checked onchange="updateVisibility()"> <span class="dot-icon" style="background:#ffaa00;"></span> 既破壊パッチ (橙/M6.0-6.9)</label>
+                <label><input type="checkbox" id="check-m7" checked onchange="updateVisibility()"> <span class="dot-icon" style="background:#ff69b4;"></span> 大規模パッチ (桃/M7.0-7.9)</label>
+                <label><input type="checkbox" id="check-recent8" checked onchange="updateVisibility()"> <span class="dot-icon" style="background:#00ff00;"></span> 巨大地震 M8.0+ (最近期)</label>
+                <label><input type="checkbox" id="check-old8" checked onchange="updateVisibility()"> <span class="dot-icon" style="background:#ff0000;"></span> 巨大地震 M8.0+ (古期)</label>
+                <label><input type="checkbox" id="check-bezier" checked onchange="updateVisibility()"> <span style="border: 1px dashed #ff69b4; width:12px; height:8px; display:inline-block; margin-right:10px; border-radius:50%;"></span> ベジェ曲線 (極値境界線)</label>
+            </div>
+        </div>
+
+
+
+<div id="solar-monitor">
+    <div id="solar-header">SOLAR ACTIVITY MONITOR</div>
+    <div style="padding: 10px;">
+        <div class="video-container">
+            <video width="100%" height="100%" autoplay loop muted playsinline>
+                <source src="https://sdo.gsfc.nasa.gov/assets/img/latest/mpeg/latest_1024_0304.mp4" type="video/mp4">
+            </video>
+        </div>
+        <div class="link-grid">
+            <a href="https://swc.nict.go.jp/trend/flare.html" target="_blank">NICT Flare</a>
+            <a href="https://www.iris.edu/hq/" target="_blank">IRIS Data</a>
+        </div>
+        <div class="monitor-footer">
+            304 Å - Transition Region/Chromosphere
+        </div>
+    </div>
+</div>
+
+<div id="ionex-monitor" style="position: fixed; right: 20px; top: 400px; width: 300px; z-index: 1000;">
+    <div id="ionex-header" style="background: #1a1a1a; color: #00d4ff; padding: 5px 10px; font-weight: bold; border-bottom: 1px solid #444;">
+        IONosphere Map Exchange (VTEC)
+    </div>
+    <div style="padding: 10px; background: rgba(0, 0, 0, 0.7); border: 1px solid #444; border-top: none;">
+        <div class="video-container">
+            <img src="https://chapman.upc.es/tomion/rapid/uqrg.latest.rms.gif" width="100%" style="display: block; border-radius: 2px;">
+        </div>
+        <div class="link-grid" style="display: grid; grid-template-columns: 1fr 1fr; gap: 5px; margin-top: 10px;">
+            <a href="https://chapman.upc.es/tomion/rapid/" target="_blank" style="color: #00d4ff; font-size: 11px; text-decoration: none;">UPC Chapman</a>
+            <a href="https://cddis.nasa.gov/archive/gnss/products/ionex/" target="_blank" style="color: #00d4ff; font-size: 11px; text-decoration: none;">NASA CDDIS</a>
+        </div>
+        <div class="monitor-footer" style="font-size: 10px; color: #888; margin-top: 5px; text-align: center;">
+            UQRG - Global VTEC Map (15-min res)
+        </div>
+
+<select id="mirror-select" style="width:100%; background:#000; color:#0ff; border:1px solid #044; padding:5px;">
+    <option value="https://sideshow.jpl.nasa.gov/pub/iono/daily/latest_gim.json">JPL (Latest JSON - Recommended)</option>
+    <option value="https://sideshow.jpl.nasa.gov/pub/iono/daily/gim2d.json">JPL (Global Map JSON)</option>
+</select>
+    </div>
+</div>
+
+
+
+
+
+    </div>
+    <script>
+        const ui = document.getElementById("ui"), header = document.getElementById("ui-header");
+        let isDragging = false, offset = { x: 0, y: 0 };
+        header.onmousedown = (e) => { isDragging = true; offset.x = e.clientX - ui.offsetLeft; offset.y = e.clientY - ui.offsetTop; e.preventDefault(); };
+        document.onmousemove = (e) => { if (!isDragging) return; ui.style.left = (e.clientX - offset.x) + "px"; ui.style.top = (e.clientY - offset.y) + "px"; };
+        document.onmouseup = () => isDragging = false;
+
+        let scene, camera, renderer, controls, earthGroup;
+        let earthquakeGroup, faultGroup, criticalGroup, volcanoGroup, lineGroup, ionosphereGroup, bezierGroup;
+        const R = 5; let isScanning = false;
+        let faultPoints = []; 
+        const BASE_TIME = new Date("2011-03-11T05:46:00Z").getTime();
+        const activeLines = new Map();
+
+        const proxyPresets = { main: "https://api.allorigins.win/raw?url=", alt1: "https://cors-anywhere.herokuapp.com/", alt2: "https://thingproxy.freeboard.io/fetch/", custom: "" };
+        function updateProxyUI() {
+            const selected = document.querySelector('input[name="proxy-sel"]:checked').value;
+            const input = document.getElementById('proxy-url');
+            if(selected !== 'custom') input.value = proxyPresets[selected];
+        }
+
+        function init() {
+            scene = new THREE.Scene();
+            camera = new THREE.PerspectiveCamera(60, window.innerWidth/window.innerHeight, 0.1, 1000);
+            camera.position.set(6, 4, 9);
+            renderer = new THREE.WebGLRenderer({ antialias: true });
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            document.body.appendChild(renderer.domElement);
+            controls = new THREE.OrbitControls(camera, renderer.domElement);
+            
+            earthGroup = new THREE.Group(); scene.add(earthGroup);
+            faultGroup = new THREE.Group(); earthquakeGroup = new THREE.Group();
+            criticalGroup = new THREE.Group(); volcanoGroup = new THREE.Group();
+            lineGroup = new THREE.Group(); ionosphereGroup = new THREE.Group();
+            bezierGroup = new THREE.Group();
+            earthGroup.add(faultGroup, earthquakeGroup, criticalGroup, volcanoGroup, lineGroup, ionosphereGroup, bezierGroup);
+            
+            const earthGeo = new THREE.SphereGeometry(R, 64, 64);
+            const earthMat = new THREE.MeshStandardMaterial({ color: 0xffffff });
+            //new THREE.TextureLoader().load('https://upload.wikimedia.org/wikipedia/commons/thumb/e/ea/Equirectangular-projection.jpg/2048px-Equirectangular-projection.jpg', (tex) => {
+            new THREE.TextureLoader().load('Equirectangular-projection.jpg', (tex) => {
+                earthMat.map = tex; earthMat.needsUpdate = true;
+            });
+            earthGroup.add(new THREE.Mesh(earthGeo, earthMat));
+            scene.add(new THREE.AmbientLight(0xffffff, 0.8));
+            
+            plotVolcanoes();
+            plotCriticalZones(); // 臨界監視域のプロットを追加
+            fetchIonosphereBySelection();
+
+            const dz = document.getElementById('drop-zone');
+            dz.addEventListener('dragover', (e) => { e.preventDefault(); dz.classList.add('hover'); }, false);
+            dz.addEventListener('dragleave', () => { dz.classList.remove('hover'); }, false);
+            dz.addEventListener('drop', (e) => { e.preventDefault(); dz.classList.remove('hover'); handleFileDrop(e); }, false);
+            
+            window.addEventListener('click', onDocumentMouseDown, false);
+            
+            // トルコ周辺の構造を強調表示
+    addNorthAnatolianFault();   // 北アナトリア断層
+    addPlateMotionArrows();     // プレート移動の矢印
+    addMajorPlateBoundaries();  // 主要なプレート境界（←今回追加）
+    addGlobalPlateHighlights()
+            animate();
+        }
+
+        // 臨界監視域をプロットする関数を実装
+        function plotCriticalZones() {
+            criticalGroup.clear();
+            // 世界の主要な沈み込み帯・未破壊空白域の代表的な座標
+            const criticalPoints = [
+                {lat: 35.0, lon: 139.0, label: "Sagami"},
+                {lat: 33.0, lon: 135.0, label: "Nankai"},
+                {lat: 45.0, lon: -125.0, label: "Cascadia"},
+                {lat: -33.0, lon: -72.0, label: "Valparaiso"},
+                {lat: 3.0, lon: 95.0, label: "Sumatra-North"}
+            ];
+            criticalPoints.forEach(p => {
+                const ringGeo = new THREE.TorusGeometry(0.15, 0.015, 8, 32);
+                const ringMat = new THREE.MeshBasicMaterial({ color: 0xff00ff, transparent: true, opacity: 0.8 });
+                const ring = new THREE.Mesh(ringGeo, ringMat);
+                ring.position.copy(toVec(p.lat, p.lon, R + 0.06));
+                ring.lookAt(0,0,0);
+                criticalGroup.add(ring);
+            });
+        }
+
+
+
+
+
+
+
+
+function handleFileDrop(e) {
+    e.preventDefault();
+    const file = e.dataTransfer.files[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = (event) => {
+        const content = event.target.result;
+        
+        // ファイル名が .json で終わる場合の処理を追加
+        if (file.name.toLowerCase().endsWith('.json')) {
+            try {
+                const data = JSON.parse(content);
+                processIonosphereData(data);
+                document.getElementById('status').innerText = "DROP SUCCESS: JSON LOADED";
+            } catch (err) {
+                document.getElementById('status').innerText = "JSON PARSE ERROR";
+            }
+        } 
+        // それ以外（IONEXテキストなど）は既存のパース処理
+        else {
+            const data = parseIonexText(content);
+            processIonosphereData(data);
+            document.getElementById('status').innerText = "DROP SUCCESS: IONEX PARSED";
+        }
+    };
+    reader.readAsText(file);
+}
+
+
+
+
+
+
+
+        function processIonosphereData(data) {
+            ionosphereGroup.clear(); if (!data || !data.points) return;
+            const proximityThreshold = 3.0; 
+            data.points.forEach(p => {
+                const [lat, lon, tec, threshold] = p;
+                const deviation = tec - threshold;
+                let isNear = (faultPoints.length === 0);
+                if (!isNear) {
+                    for (let i = 0; i < faultPoints.length; i += 10) {
+                        const dist = Math.sqrt(Math.pow(lat - faultPoints[i].lat, 2) + Math.pow(lon - faultPoints[i].lon, 2));
+                        if (dist < proximityThreshold) { isNear = true; break; }
+                    }
+                }
+                if (isNear) {
+                    const ring = new THREE.Mesh(new THREE.TorusGeometry(deviation * 0.006, 0.012, 8, 32), new THREE.MeshBasicMaterial({ color: 0xffff00, transparent: true, opacity: 0.7 }));
+                    ring.position.copy(toVec(lat, lon, R + 0.12)); ring.lookAt(0,0,0); ionosphereGroup.add(ring);
+                }
+            });
+        }
+
+        async function fetchGlobalFaults() {
+            const res = await fetch('https://raw.githubusercontent.com/fraxen/tectonicplates/master/GeoJSON/PB2002_boundaries.json');
+            const data = await res.json(); faultPoints = [];
+            data.features.forEach(f => {
+                if (f.geometry.type === "LineString") {
+                    const pts = f.geometry.coordinates.map(c => { faultPoints.push({lat: c[1], lon: c[0]}); return toVec(c[1], c[0], R + 0.02); });
+                    faultGroup.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints(pts), new THREE.LineBasicMaterial({color: 0xff0000, opacity: 1.0, transparent: true})));
+                }
+            });
+            document.getElementById('status').innerText = "PLATES LOADED";
+        }
+
+
+
+
+
+// 1. toggleSync関数の修正：取得したtimeをaddDotおよびaddNumberedDotに渡す
+    async function toggleSync() {
+        if (isScanning) return; isScanning = true;
+        earthquakeGroup.clear(); bezierGroup.clear();
+        const status = document.getElementById('status'), bar = document.getElementById('bar');
+        let allEvents = [], allM8s = [], currentYear = new Date().getFullYear();
+        
+        for (let year = 1900; year < currentYear + 1; year += 15) {
+            let end = Math.min(year + 15, currentYear); status.innerText = `FETCHING: ${year}-${end}`;
+            try {
+                const res = await fetch(`https://earthquake.usgs.gov/fdsnws/event/1/query?format=geojson&starttime=${year}-01-01&endtime=${end}-12-31&minmagnitude=5.5`);
+                const data = await res.json();
+                data.features.forEach(f => {
+                    const [lon, lat] = f.geometry.coordinates;
+                    const mag = f.properties.mag, time = f.properties.time; // USGSからの発生時刻(エポックミリ秒)
+                    allEvents.push({lat, lon, mag, time});
+                });
+                bar.style.width = ((end - 1900) / (currentYear - 1900) * 100) + "%";
+            } catch (e) {} await new Promise(r => setTimeout(r, 50));
+        }
+
+        allM8s = allEvents.filter(e => e.mag >= 8.0);
+        const oneYearMs = 365 * 24 * 3600 * 1000;
+
+        allEvents.forEach(e => {
+            if (e.mag >= 8.0) return;
+            const isAffectedByM8 = allM8s.some(m => Math.abs(e.time - m.time) <= oneYearMs && getDistance(e.lat, e.lon, m.lat, m.lon) <= 1000);
+            const finalType = isAffectedByM8 ? 'm7' : (e.mag >= 7.0 ? 'm7' : e.mag >= 6.0 ? 'patch' : 'm5');
+            // 修正：引数に e.time を追加
+            addDot(e.lat, e.lon, e.mag, finalType, e.time);
+        });
+
+            allM8s.forEach(m8 => {
+                const related = allEvents.filter(e => {
+                    return e.mag < 8.0 && Math.abs(e.time - m8.time) <= oneYearMs && getDistance(e.lat, e.lon, m8.lat, m8.lon) <= 1000;
+                });
+                if (related.length >= 3) drawExtremumBezier(related);
+            });
+
+        allM8s.sort((a,b)=>a.time-b.time);
+        const baseIdx = allM8s.findIndex(e => e.time >= BASE_TIME && e.mag >= 9.0);
+        allM8s.forEach((e, i) => {
+            // 修正：引数に e.time を追加
+            addNumberedDot(e.lat, e.lon, e.mag, (i >= baseIdx ? i-baseIdx+1 : i-baseIdx), e.time);
+        });
+
+        status.innerText = "SYNC COMPLETE"; bar.style.width = "0%"; isScanning = false;
+        updateVisibility();
+    }
+
+
+
+
+        function drawExtremumBezier(points) {
+            if (points.length < 4) return;
+            let n = points[0], s = points[0], e = points[0], w = points[0];
+            points.forEach(p => {
+                if (p.lat > n.lat) n = p; if (p.lat < s.lat) s = p;
+                if (p.lon > e.lon) e = p; if (p.lon < w.lon) w = p;
+            });
+            const extremums = [n, e, s, w, n];
+            const vecs = extremums.map(p => toVec(p.lat, p.lon, R + 0.1));
+            const curve = new THREE.CatmullRomCurve3(vecs);
+            const line = new THREE.Line(new THREE.BufferGeometry().setFromPoints(curve.getPoints(64)), new THREE.LineBasicMaterial({ color: 0xff69b4, transparent: true, opacity: 0.6 }));
+            bezierGroup.add(line);
+        }
+
+        function getDistance(lat1, lon1, lat2, lon2) {
+            const rad = Math.PI / 180;
+            const a = Math.sin((lat2-lat1)*rad/2)**2 + Math.cos(lat1*rad)*Math.cos(lat2*rad)*Math.sin((lon2-lon1)*rad/2)**2;
+            return 6371 * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+        }
+
+
+
+
+// 2. addDot関数の修正：userDataにtimeを格納
+function addDot(lat, lon, mag, forcedType, time) {
+    const type = forcedType || (mag >= 7.0 ? 'm7' : mag >= 6.0 ? 'patch' : 'm5');
+    let color = (type === 'm7') ? 0xff69b4 : (type === 'patch') ? 0xffaa00 : 0x00aaff;
+    const dot = new THREE.Mesh(new THREE.SphereGeometry(0.011, 6, 6), new THREE.MeshBasicMaterial({ color }));
+    dot.position.copy(toVec(lat, lon, R + 0.03));
+    
+    // 修正: 属性を全て保持
+    dot.userData = { 
+        type: type, 
+        mag: mag, 
+        time: time, 
+        lat: lat, 
+        lon: lon,
+        timeFiltered: false // 初期値は非表示対象外
+    };
+    earthquakeGroup.add(dot);
+}
+
+
+
+
+
+// 3. addNumberedDot関数の修正：userDataにtimeを格納
+    function addNumberedDot(lat, lon, mag, num, time) {
+        const color = (num >= 1) ? 0x00ff00 : 0xff0000;
+        const group = new THREE.Group();
+        group.add(new THREE.Mesh(new THREE.SphereGeometry(0.02, 8, 8), new THREE.MeshBasicMaterial({ color })));
+        const canvas = document.createElement('canvas'); canvas.width = 64; canvas.height = 64;
+        const ctx = canvas.getContext('2d'); ctx.font = "bold 34px Arial"; ctx.textAlign = "center"; ctx.fillStyle = "white"; ctx.fillText(num, 32, 45);
+        const sprite = new THREE.Sprite(new THREE.SpriteMaterial({ map: new THREE.CanvasTexture(canvas), depthTest: false }));
+        sprite.scale.set(0.05, 0.05, 1); group.add(sprite);
+        group.position.copy(toVec(lat, lon, R + 0.04)); 
+        // 修正：userDataにtimeプロパティを追加
+        group.userData = { type: (num >= 1 ? 'recent8' : 'old8'), num: num, mag: mag, time: time }; 
+        earthquakeGroup.add(group);
+    }
+
+
+
+
+
+        function toVec(lat, lon, r) {
+            const phi = (90 - lat) * (Math.PI / 180), theta = (lon + 180) * (Math.PI / 180);
+            return new THREE.Vector3(-r * Math.sin(phi) * Math.cos(theta), r * Math.cos(phi), r * Math.sin(phi) * Math.sin(theta));
+        }
+
+
+
+
+
+
+async function fetchIonosphereBySelection() {
+    const status = document.getElementById('status');
+    status.innerText = "JPLより生の観測データを取得中...";
+
+    // 認証不要で生のTEC値を取得できる最新ミラー
+    const url = "https://sideshow.jpl.nasa.gov/pub/iono/daily/latest_gim.json";
+
+    try {
+        const response = await fetch(url);
+        if (!response.ok) throw new Error("データソースに接続できません");
+
+        const data = await response.json();
+
+        // 【重要】理論補正は行わず、観測された生の数値をそのまま採用
+        // data.points の各要素 [lat, lon, tec, height] をそのまま processIonosphereData へ渡す
+
+        processIonosphereData(data);
+        
+        // 描画完了時のステータス表示
+        status.innerText = `成功: 生の観測データ（${data.points.length}地点）を描画完了`;
+        console.log("生の電波異常データをそのまま反映しました。");
+
+    } catch (e) {
+        console.error("Fetch error:", e);
+        status.innerText = "取得失敗: ネットワーク設定を確認してください。";
+    }
+}
+
+
+
+
+
+
+
+
+
+// 補足：IONEXテキストからデータを抜き出すロジック（未実装なら追加してください）
+function parseIonexText(text) {
+    const lines = text.split('\n');
+    let points = [];
+    let exponent = -1;
+    for (let i = 0; i < lines.length; i++) {
+        if (lines[i].includes('EXPONENT')) exponent = parseFloat(lines[i].substring(0, 6).trim()) || -1;
+        if (lines[i].includes('LAT/LON1/LON2/DLON/H')) {
+            const lat = parseFloat(lines[i].substring(2, 8).trim());
+            const lonStart = parseFloat(lines[i].substring(8, 14).trim());
+            const lonStep = parseFloat(lines[i].substring(20, 26).trim());
+            let j = i + 1;
+            let vals = [];
+            while (j < lines.length && !lines[j].includes('LAT') && !lines[j].includes('END')) {
+                lines[j].trim().split(/\s+/).forEach(v => { if(v!=="") vals.push(parseFloat(v)); });
+                j++;
+            }
+            vals.forEach((v, idx) => {
+                const lon = lonStart + (idx * lonStep);
+                const tec = v * Math.pow(10, exponent);
+                if (tec > 0) points.push([lat, lon, tec, 100]);
+            });
+            i = j - 1;
+        }
+    }
+    return { points };
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+        function plotVolcanoes() {
+            const vList = [{lat: 31.59, lon: 130.65}, {lat: 19.42, lon: -155.28}, {lat: 37.75, lon: 14.99}];
+            vList.forEach(v => {
+                const mesh = new THREE.Mesh(new THREE.ConeGeometry(0.03, 0.1, 6), new THREE.MeshBasicMaterial({ color: 0xff4400 }));
+                mesh.position.copy(toVec(v.lat, v.lon, R + 0.05)); mesh.lookAt(toVec(v.lat, v.lon, R + 1)); mesh.rotateX(Math.PI/2);
+                volcanoGroup.add(mesh);
+            });
+        }
+
+
+
+
+function updateVisibility() {
+    // 1. 各種グループ（断層、火山、電離層など）の一括表示切り替え
+    faultGroup.visible = document.getElementById('check-fault').checked;
+    criticalGroup.visible = document.getElementById('check-critical').checked;
+    volcanoGroup.visible = document.getElementById('check-volcano').checked;
+    ionosphereGroup.visible = document.getElementById('check-ionosphere').checked;
+    bezierGroup.visible = document.getElementById('check-bezier').checked;
+
+    // 2. 地震ドット（earthquakeGroup）の個別表示切り替え
+    earthquakeGroup.children.forEach(obj => {
+        const d = obj.userData;
+        if (!d) return;
+
+        let isCategoryChecked = false;
+
+        // A. チェックボックスの状態を確認
+        if (d.num !== undefined) {
+            // M8以上の番号付きドット
+            isCategoryChecked = (d.type === 'recent8') ? 
+                document.getElementById('check-recent8').checked : 
+                document.getElementById('check-old8').checked;
+        } else if (d.type) {
+            // 通常の地震ドット
+            const t = d.type;
+            if (t === 'm5') isCategoryChecked = document.getElementById('check-m5').checked;
+            else if (t === 'patch') isCategoryChecked = document.getElementById('check-patch').checked;
+            else if (t === 'm7') isCategoryChecked = document.getElementById('check-m7').checked;
+        }
+
+        // B. 時間フィルタの状態を確認
+        // APPLYボタンで判定された timeFiltered が true ならば、強制的に「表示不可(false)」にする
+        const isTimePass = (d.timeFiltered !== true);
+
+        // A と B 両方の条件を満たした場合のみ visible = true
+        obj.visible = isCategoryChecked && isTimePass;
+    });
+}
+
+
+
+
+        function onDocumentMouseDown(event) {
+            const mouse = new THREE.Vector2((event.clientX/window.innerWidth)*2-1, -(event.clientY/window.innerHeight)*2+1);
+            const raycaster = new THREE.Raycaster(); raycaster.setFromCamera(mouse, camera);
+            const intersects = raycaster.intersectObjects(earthquakeGroup.children, true);
+            if (intersects.length > 0) {
+                let target = intersects[0].object;
+                while (target.parent && target.userData.num === undefined) target = target.parent;
+                if (target.userData.num !== undefined) toggleConnectLine(target.userData.num);
+            }
+        }
+
+        function toggleConnectLine(num) {
+            if (activeLines.has(num)) { lineGroup.remove(activeLines.get(num)); activeLines.delete(num); return; }
+            const s = earthquakeGroup.children.find(c => c.userData.num === num), e = earthquakeGroup.children.find(c => c.userData.num === (num + 1));
+            if (s && e) {
+                const pts = [];
+                for(let i=0; i<=40; i++) {
+                    let p = new THREE.Vector3().lerpVectors(s.position, e.position, i/40);
+                    p.normalize().multiplyScalar(R + 0.05); pts.push(p);
+                }
+                const line = new THREE.Line(new THREE.BufferGeometry().setFromPoints(pts), new THREE.LineBasicMaterial({ color: 0xff0000, opacity: 0.8, transparent: true }));
+                lineGroup.add(line); activeLines.set(num, line);
+            }
+        }
+
+// APPLYボタン押下時に実行：時間フィルタフラグを更新し、強制的に表示を操作する
+function applyTimeFilter() {
+    const months = parseInt(document.getElementById('filter-months').value);
+    const bar = document.getElementById('bar');
+    const status = document.getElementById('status');
+    if (isNaN(months)) return;
+
+    // 現在時刻から「〇ヶ月前」の閾値を計算 (エポックミリ秒)
+    const threshold = Date.now() - (months * 30 * 24 * 3600 * 1000);
+    const dots = earthquakeGroup.children;
+    const total = dots.length;
+
+    if (total === 0) return;
+
+    // 全ドットをループして時間判定フラグを更新
+    dots.forEach((dot, i) => {
+        if (dot.userData && dot.userData.time) {
+            // 閾値より古ければ true (フィルタ対象 = 非表示)
+            const isTooOld = dot.userData.time < threshold;
+            dot.userData.timeFiltered = isTooOld;
+        }
+
+        // スクロールバーに進捗を表示
+        if (i % 100 === 0 || i === total - 1) {
+            bar.style.width = ((i + 1) / total * 100) + "%";
+        }
+    });
+
+    // 最後に一括で表示状態を更新（再描画）
+    updateVisibility();
+
+    status.innerText = `FILTER APPLIED: ${months} MONTHS`;
+    setTimeout(() => { bar.style.width = "0%"; }, 1000);
+}
+
+
+
+
+        function animate() {
+            requestAnimationFrame(animate);
+            earthGroup.rotation.y += 0.0003;
+            const s = 1 + Math.sin(Date.now() * 0.003) * 0.15;
+            // 臨界監視域のアニメーション効果
+            criticalGroup.children.forEach(c => {
+                c.scale.set(s, s, 1);
+            });
+            updatePredictionAnims();
+            controls.update(); renderer.render(scene, camera);
+        }
+        window.onload = init;
+
+// 1. 予測計数化パラメータ (WRM Parameters)
+const PREDICTION_CONFIG = [
+    { name: "Philippines", lat: 13.0, lon: 122.0, delay: 1, hitRate: 0.78, color: 0xff3300 }, // 1日以内
+    { name: "Indian Ocean", lat: -3.0, lon: 90.0, delay: 4, hitRate: 0.89, color: 0xff6600 }, // 4日以内
+    { name: "Italy", lat: 41.9, lon: 12.5, delay: 7, hitRate: 0.73, color: 0xffcc00 },        // 7日以内
+    { name: "South America", lat: -20.0, lon: -70.0, delay: 14, hitRate: 0.64, color: 0xff00ff } // 14日以内
+];
+
+// 2. 予測リングを格納するグループ
+const predictionGroup = new THREE.Group();
+scene.add(predictionGroup);
+
+// 3. 日本での発露（M5.5以上）を起点に予測を生成する関数
+function triggerGlobalPrediction(mag, lat, lon) {
+    // 日本周辺 (Lat: 30-45, Lon: 128-146) の判定
+    if (lat >= 30 && lat <= 45 && lon >= 128 && lon <= 146 && mag >= 5.5) {
+        console.log(`WRM TRIGGER: Japan M${mag} detected. Calculating wave energy propagation...`);
+        
+        // 既存の予測表示をクリア
+        while(predictionGroup.children.length > 0){ 
+            predictionGroup.remove(predictionGroup.children[0]); 
+        }
+
+        PREDICTION_CONFIG.forEach(region => {
+            const pos = toVec(region.lat, region.lon, R + 0.05);
+            // const pos = convertLatLonToVector3(region.lat, region.lon, 5.05);
+            
+            // 警告リングの作成（アニメーション用）
+            const ringGeo = new THREE.RingGeometry(0.12, 0.18, 32);
+            const ringMat = new THREE.MeshBasicMaterial({ 
+                color: region.color, 
+                transparent: true, 
+                opacity: 0.8, 
+                side: THREE.DoubleSide 
+            });
+            const ring = new THREE.Mesh(ringGeo, ringMat);
+            ring.position.copy(pos);
+            ring.lookAt(new THREE.Vector3(0,0,0));
+            
+            // メタデータの保持
+            ring.userData = { 
+                isPrediction: true, 
+                regionName: region.name, 
+                delay: region.delay,
+                phase: 0 
+            };
+            predictionGroup.add(ring);
+        });
+
+        // ステータス表示の更新
+        const status = document.getElementById('status');
+        status.innerHTML = `<span style="color:#ff0000; font-weight:bold;">PREDICTION ACTIVE:</span> Japan M${mag} triggers global chain.`;
+    }
+}
+
+// 4. アニメーションループ内でのリングの演出（animate関数内に追記）
+function updatePredictionAnims() {
+    predictionGroup.children.forEach(ring => {
+        ring.userData.phase += 0.05;
+        const scale = 1 + Math.sin(ring.userData.phase) * 0.2;
+        ring.scale.set(scale, scale, 1);
+        ring.material.opacity = 0.5 + Math.sin(ring.userData.phase) * 0.3;
+    });
+}
+
+// 北アナトリア断層 (NAF) の詳細ラインを追加する関数
+function addNorthAnatolianFault() {
+    // 北アナトリア断層のおおよその座標データ (経度, 緯度)
+    const nafCoords = [
+        [26.0, 40.5], [30.0, 40.8], [35.0, 41.0], [40.0, 39.8], [43.0, 39.2]
+    ];
+    
+    const pts = nafCoords.map(c => toVec(c[1], c[0], R + 0.04));
+    const geometry = new THREE.BufferGeometry().setFromPoints(pts);
+    // 強調のために太めの赤い実線に設定
+    const material = new THREE.LineBasicMaterial({ 
+        color: 0xff0000, 
+        linewidth: 3,
+        transparent: true,
+        opacity: 0.9 
+    });
+    
+    const line = new THREE.Line(geometry, material);
+    faultGroup.add(line);
+}
+// プレートの移動方向を示す矢印を追加する関数
+function addPlateMotionArrows() {
+    const motions = [
+        { lat: 25.0, lon: 20.0, dir: new THREE.Vector3(0.5, 0.5, 0), label: "AFRICA" }, // アフリカプレート
+        { lat: 20.0, lon: 45.0, dir: new THREE.Vector3(-0.2, 0.8, 0), label: "ARABIA" }  // アラビアプレート
+    ];
+
+    motions.forEach(m => {
+        const origin = toVec(m.lat, m.lon, R + 0.1);
+        const dir = origin.clone().normalize(); // 垂直方向
+        
+        // 簡易的な矢印ヘルパーの追加
+        const arrowHelper = new THREE.ArrowHelper(
+            new THREE.Vector3(0, 1, 0).applyQuaternion(new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0,0,1), dir)), 
+            origin, 
+            0.5, 
+            0xffaa00
+        );
+        earthGroup.add(arrowHelper);
+    });
+}
+// 主要なプレート境界（トルコ周辺）を強調描画する関数
+function addMajorPlateBoundaries() {
+    // ユーラシア、アフリカ、アラビアプレートが接するエリアの座標
+    const plateLines = [
+        // アフリカプレート北端境界（地中海沿い）
+        { coords: [[10.0, 35.0], [20.0, 34.0], [30.0, 33.0], [35.0, 35.0]], color: 0xff0000 },
+        // アラビアプレート北端・東端境界
+        { coords: [[35.0, 35.0], [40.0, 38.0], [45.0, 37.0], [50.0, 30.0]], color: 0xff0000 },
+        // 紅海・死海トランスフォーム（アラビアとアフリカの境界）
+        { coords: [[35.0, 30.0], [36.5, 33.0], [35.5, 35.5]], color: 0xff0000 }
+    ];
+
+    plateLines.forEach(lineData => {
+        const pts = lineData.coords.map(c => toVec(c[1], c[0], R + 0.04));
+        const geometry = new THREE.BufferGeometry().setFromPoints(pts);
+        // 赤い実線で描画
+        const material = new THREE.LineBasicMaterial({ 
+            color: lineData.color, 
+            transparent: true, 
+            opacity: 0.8,
+            linewidth: 2
+        });
+        const line = new THREE.Line(geometry, material);
+        faultGroup.add(line);
+    });
+}
+// アジア（日本・フィリピン）および北米の主要プレート境界を描画
+function addGlobalPlateHighlights() {
+    const globalLines = [
+        // --- アジア方面 ---
+        // 日本海溝・伊豆小笠原海溝 (太平洋プレート境界)
+        { coords: [[144.0, 43.0], [143.0, 35.0], [141.0, 25.0]], color: 0xff0000 },
+        // 相模・南海トラフ
+        { coords: [[140.0, 35.0], [138.0, 34.0], [135.0, 33.0], [131.0, 31.0]], color: 0xff0000 },
+        // フィリピン海プレート境界
+        { coords: [[125.0, 10.0], [122.0, 20.0], [125.0, 25.0], [130.0, 30.0]], color: 0xff0000 },
+
+        // --- アメリカ方面 ---
+        // カスケード沈み込み帯 (北米西岸)
+        { coords: [[-125.0, 40.0], [-126.0, 45.0], [-128.0, 50.0]], color: 0xff0000 },
+        // サンアンドレアス断層
+        { coords: [[-115.0, 33.0], [-118.0, 35.0], [-122.0, 38.0], [-124.0, 40.0]], color: 0xff0000 },
+        // 南米・ペルー・チリ海溝
+        { coords: [[-72.0, -10.0], [-75.0, -20.0], [-72.0, -35.0]], color: 0xff0000 },
+        // --- 北側：衝突境界（ヒマラヤ山脈・チベット付近） ---
+        { coords: [[65.0, 33.0], [75.0, 35.0], [85.0, 30.0], [95.0, 28.0], [100.0, 25.0]], color: 0xff0000 },
+        
+        // --- 西側：トランスフォーム断層・海嶺（パキスタン沖〜中央インド洋） ---
+        { coords: [[65.0, 33.0], [67.0, 25.0], [60.0, 15.0], [60.0, 0.0], [65.0, -10.0]], color: 0xff0000 },
+        
+        // --- 東側：沈み込み帯（アンダマン海〜スマトラ島沖） ---
+        { coords: [[95.0, 25.0], [93.0, 15.0], [95.0, 5.0], [100.0, -5.0]], color: 0xff0000 },
+        
+        // --- 南側：海嶺（オーストラリアプレートとの境界方向） ---
+        { coords: [[65.0, -10.0], [80.0, -10.0], [95.0, -10.0]], color: 0xff0000 },
+        // モンゴル南西部を東西に走る主要な活動断層
+        { coords: [[95.0, 45.0], [100.0, 45.5], [105.0, 44.5]], color: 0xff0000 },
+        
+        // --- ハンガイ断層 (Hangay Faults) ---
+        // ゴビ砂漠のさらに北側、モンゴル中央部の構造線
+        { coords: [[90.0, 48.0], [98.0, 48.5], [105.0, 48.0]], color: 0xff0000 },
+
+        // --- バイカル・リフトゾーン (Baikal Rift Zone) ---
+        // ゴビ砂漠の北、バイカル湖周辺の拡大境界に近い構造
+        { coords: [[103.0, 51.0], [108.0, 53.0], [115.0, 56.0]], color: 0xff0000 },
+        // 中央インド洋海嶺 (インド〜ロドリゲス三重会合点)
+        { coords: [[65.0, 15.0], [68.0, 5.0], [70.0, -10.0], [70.0, -25.0]], color: 0xff0000 },
+        
+        // 南東インド洋海嶺 (オーストラリア方面へ)
+        { coords: [[70.0, -25.0], [85.0, -35.0], [100.0, -45.0], [120.0, -50.0]], color: 0xff0000 },
+        
+        // 南西インド洋海嶺 (アフリカ・マダガスカル南方へ)
+        { coords: [[70.0, -25.0], [60.0, -30.0], [45.0, -40.0], [30.0, -50.0]], color: 0xff0000 },
+        // --- 東太平洋海嶺 (広がる境界) ---
+        { coords: [[-115.0, -10.0], [-110.0, -20.0], [-112.0, -40.0], [-115.0, -55.0]], color: 0xff0000 },
+        
+        // --- ペルー・チリ海溝 (沈み込み帯) ---
+        { coords: [[-75.0, 5.0], [-80.0, -5.0], [-78.0, -15.0], [-72.0, -35.0], [-75.0, -45.0]], color: 0xff0000 },
+        
+        // --- ココス・ナスカ境界 (ガラパゴス付近) ---
+        { coords: [[-105.0, 2.0], [-90.0, 1.0], [-83.0, 1.0]], color: 0xff0000 },
+        // --- 南極を取り巻く海嶺 (Antarctic Ridges) ---
+        { coords: [[20.0, -55.0], [60.0, -50.0], [100.0, -55.0], [140.0, -60.0], [180.0, -62.0]], color: 0xff0000 },
+        { coords: [[-160.0, -60.0], [-120.0, -55.0], [-80.0, -60.0], [-40.0, -55.0]], color: 0xff0000 },
+        
+        // --- パタゴニア沖からハワイ東方へ伸びる東太平洋海嶺 ---
+        { coords: [[-75.0, -45.0], [-90.0, -45.0], [-110.0, -40.0], [-115.0, -20.0], [-110.0, 0.0], [-120.0, 20.0]], color: 0xff0000 },
+        // --- 北大西洋セグメント ---
+        { coords: [[-30.0, 60.0], [-25.0, 50.0], [-45.0, 40.0], [-30.0, 20.0], [-45.0, 10.0]], color: 0xff0000 },
+        
+        // --- 南大西洋セグメント (S字の屈曲部) ---
+        { coords: [[-45.0, 10.0], [-15.0, 0.0], [-10.0, -20.0], [-15.0, -40.0], [-25.0, -55.0]], color: 0xff0000 },
+        // --- 東太平洋海嶺 (南側セグメント) ---
+        // ハワイ南東沖からイースター島付近を経て、南緯55度付近まで
+        { coords: [[-110.0, -10.0], [-113.0, -20.0], [-114.0, -30.0], [-112.0, -45.0]], color: 0xff0000 },
+        
+        // --- 太平洋南極海嶺 (Pacific-Antarctic Ridge) ---
+        // 東太平洋海嶺から南極大陸の南側、ニュージーランド南方へ続くライン
+        { coords: [[-112.0, -45.0], [-125.0, -55.0], [-145.0, -62.0], [-170.0, -65.0], [170.0, -63.0]], color: 0xff0000 },
+        
+        // --- チリ海嶺 (Chile Rise) ---
+        // 東太平洋海嶺からパタゴニア（南米南端）へ向かう分岐
+        { coords: [[-112.0, -45.0], [-100.0, -43.0], [-85.0, -45.0], [-75.0, -46.0]], color: 0xff0000 },
+
+        // --- ナスカ・南極プレート境界 ---
+        { coords: [[-112.0, -45.0], [-90.0, -58.0], [-70.0, -62.0]], color: 0xff0000 },
+        // --- 北大西洋：アイスランドからアゾレス諸島へ ---
+        { coords: [[-27.0, 70.0], [-25.0, 65.0], [-30.0, 60.0], [-35.0, 50.0], [-30.0, 45.0]], color: 0xff0000 },
+        
+        // --- 中央大西洋：アゾレス付近の屈曲と赤道への伸び ---
+        { coords: [[-30.0, 45.0], [-45.0, 35.0], [-40.0, 25.0], [-45.0, 15.0], [-30.0, 5.0]], color: 0xff0000 },
+        
+        // --- 赤道付近の巨大な横ずれ（ロマンシュ断層付近） ---
+        { coords: [[-30.0, 5.0], [-10.0, 0.0], [-20.0, -5.0]], color: 0xff0000 },
+        
+        // --- 南大西洋：ブラジル沖から南極方面へ流れるS字曲線 ---
+        { coords: [[-20.0, -5.0], [-10.0, -15.0], [-15.0, -30.0], [-10.0, -45.0], [-20.0, -55.0]], color: 0xff0000 }
+    ];
+
+    globalLines.forEach(lineData => {
+        const pts = lineData.coords.map(c => toVec(c[1], c[0], R + 0.04));
+        const geometry = new THREE.BufferGeometry().setFromPoints(pts);
+        const material = new THREE.LineBasicMaterial({ 
+            color: lineData.color, 
+            transparent: true, 
+            opacity: 0.8,
+            linewidth: 2 
+        });
+        const line = new THREE.Line(geometry, material);
+        faultGroup.add(line);
+    });
+}
+
+
+    </script>
+</body>
+</html>
