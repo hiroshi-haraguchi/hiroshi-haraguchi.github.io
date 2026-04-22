@@ -203,6 +203,11 @@
         <div class="monitor-footer" style="font-size: 10px; color: #888; margin-top: 5px; text-align: center;">
             UQRG - Global VTEC Map (15-min res)
         </div>
+
+<select id="mirror-select" style="width:100%; background:#000; color:#0ff; border:1px solid #044; padding:5px;">
+    <option value="https://sideshow.jpl.nasa.gov/pub/iono/daily/latest_gim.json">JPL (Latest JSON - Recommended)</option>
+    <option value="https://sideshow.jpl.nasa.gov/pub/iono/daily/gim2d.json">JPL (Global Map JSON)</option>
+</select>
     </div>
 </div>
 
@@ -250,7 +255,8 @@
             
             const earthGeo = new THREE.SphereGeometry(R, 64, 64);
             const earthMat = new THREE.MeshStandardMaterial({ color: 0xffffff });
-            new THREE.TextureLoader().load('https://upload.wikimedia.org/wikipedia/commons/thumb/e/ea/Equirectangular-projection.jpg/2048px-Equirectangular-projection.jpg', (tex) => {
+            //new THREE.TextureLoader().load('https://upload.wikimedia.org/wikipedia/commons/thumb/e/ea/Equirectangular-projection.jpg/2048px-Equirectangular-projection.jpg', (tex) => {
+            new THREE.TextureLoader().load('Equirectangular-projection.jpg', (tex) => {
                 earthMat.map = tex; earthMat.needsUpdate = true;
             });
             earthGroup.add(new THREE.Mesh(earthGeo, earthMat));
@@ -296,43 +302,47 @@
             });
         }
 
-        function handleFileDrop(e) {
-            const file = e.dataTransfer.files[0];
-            if (!file) return;
-            const status = document.getElementById('status');
-            const reader = new FileReader();
-            reader.onload = (event) => {
-                try {
-                    const lines = event.target.result.split('\n');
-                    const ionoData = { points: [] };
-                    let exponent = -1, currentUT = 0;
-                    for (let i = 0; i < lines.length; i++) {
-                        const line = lines[i];
-                        if (line.includes('EXPONENT')) exponent = parseFloat(line.substring(0, 6).trim());
-                        if (line.includes('EPOCH OF CURRENT MAP')) currentUT = parseInt(line.substring(18, 20).trim());
-                        if (line.includes('LAT/LON1/LON2/DLON/H')) {
-                            const lat = parseFloat(line.substring(2, 8).trim()), lonStart = parseFloat(line.substring(8, 14).trim()), lonStep = parseFloat(line.substring(20, 26).trim());
-                            let vals = [], j = i + 1;
-                            while (vals.length < 73 && j < lines.length) {
-                                lines[j].trim().split(/\s+/).forEach(v => { if (v !== "") vals.push(parseFloat(v)); });
-                                j++;
-                            }
-                            vals.forEach((v, idx) => {
-                                const lon = lonStart + (idx * lonStep), tec = v * Math.pow(10, exponent);
-                                let lt = (currentUT + (lon / 15)) % 24;
-                                const localTime = lt < 0 ? lt + 24 : lt;
-                                const threshold = (localTime >= 6 && localTime < 18) ? 120 : 90; 
-                                if (tec > threshold) ionoData.points.push([lat, lon, tec, threshold]);
-                            });
-                            i = j - 1;
-                        }
-                    }
-                    processIonosphereData(ionoData);
-                    status.innerText = `DETECTED: ${ionoData.points.length} ANOMALIES`;
-                } catch(err) { status.innerText = "PARSE ERROR"; }
-            };
-            reader.readAsText(file);
+
+
+
+
+
+
+
+function handleFileDrop(e) {
+    e.preventDefault();
+    const file = e.dataTransfer.files[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = (event) => {
+        const content = event.target.result;
+        
+        // ファイル名が .json で終わる場合の処理を追加
+        if (file.name.toLowerCase().endsWith('.json')) {
+            try {
+                const data = JSON.parse(content);
+                processIonosphereData(data);
+                document.getElementById('status').innerText = "DROP SUCCESS: JSON LOADED";
+            } catch (err) {
+                document.getElementById('status').innerText = "JSON PARSE ERROR";
+            }
+        } 
+        // それ以外（IONEXテキストなど）は既存のパース処理
+        else {
+            const data = parseIonexText(content);
+            processIonosphereData(data);
+            document.getElementById('status').innerText = "DROP SUCCESS: IONEX PARSED";
         }
+    };
+    reader.readAsText(file);
+}
+
+
+
+
+
+
 
         function processIonosphereData(data) {
             ionosphereGroup.clear(); if (!data || !data.points) return;
@@ -493,15 +503,86 @@ function addDot(lat, lon, mag, forcedType, time) {
             return new THREE.Vector3(-r * Math.sin(phi) * Math.cos(theta), r * Math.cos(phi), r * Math.sin(phi) * Math.sin(theta));
         }
 
-        async function fetchIonosphereBySelection() {
-            const status = document.getElementById('status');
-            const proxyBase = document.getElementById('proxy-url').value, mirrorUrl = document.getElementById('mirror-select').value;
-            try {
-                const res = await fetch(proxyBase + encodeURIComponent(mirrorUrl));
-                const data = await res.json(); processIonosphereData(data);
-                status.innerText = "IONO SUCCESS";
-            } catch (e) { status.innerText = "FETCH FAILED"; }
+
+
+
+
+
+async function fetchIonosphereBySelection() {
+    const status = document.getElementById('status');
+    status.innerText = "JPLより生の観測データを取得中...";
+
+    // 認証不要で生のTEC値を取得できる最新ミラー
+    const url = "https://sideshow.jpl.nasa.gov/pub/iono/daily/latest_gim.json";
+
+    try {
+        const response = await fetch(url);
+        if (!response.ok) throw new Error("データソースに接続できません");
+
+        const data = await response.json();
+
+        // 【重要】理論補正は行わず、観測された生の数値をそのまま採用
+        // data.points の各要素 [lat, lon, tec, height] をそのまま processIonosphereData へ渡す
+
+        processIonosphereData(data);
+        
+        // 描画完了時のステータス表示
+        status.innerText = `成功: 生の観測データ（${data.points.length}地点）を描画完了`;
+        console.log("生の電波異常データをそのまま反映しました。");
+
+    } catch (e) {
+        console.error("Fetch error:", e);
+        status.innerText = "取得失敗: ネットワーク設定を確認してください。";
+    }
+}
+
+
+
+
+
+
+
+
+
+// 補足：IONEXテキストからデータを抜き出すロジック（未実装なら追加してください）
+function parseIonexText(text) {
+    const lines = text.split('\n');
+    let points = [];
+    let exponent = -1;
+    for (let i = 0; i < lines.length; i++) {
+        if (lines[i].includes('EXPONENT')) exponent = parseFloat(lines[i].substring(0, 6).trim()) || -1;
+        if (lines[i].includes('LAT/LON1/LON2/DLON/H')) {
+            const lat = parseFloat(lines[i].substring(2, 8).trim());
+            const lonStart = parseFloat(lines[i].substring(8, 14).trim());
+            const lonStep = parseFloat(lines[i].substring(20, 26).trim());
+            let j = i + 1;
+            let vals = [];
+            while (j < lines.length && !lines[j].includes('LAT') && !lines[j].includes('END')) {
+                lines[j].trim().split(/\s+/).forEach(v => { if(v!=="") vals.push(parseFloat(v)); });
+                j++;
+            }
+            vals.forEach((v, idx) => {
+                const lon = lonStart + (idx * lonStep);
+                const tec = v * Math.pow(10, exponent);
+                if (tec > 0) points.push([lat, lon, tec, 100]);
+            });
+            i = j - 1;
         }
+    }
+    return { points };
+}
+
+
+
+
+
+
+
+
+
+
+
+
 
         function plotVolcanoes() {
             const vList = [{lat: 31.59, lon: 130.65}, {lat: 19.42, lon: -155.28}, {lat: 37.75, lon: 14.99}];
